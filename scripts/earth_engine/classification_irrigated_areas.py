@@ -1,16 +1,14 @@
+import re
 import ee
 import ee.mapclient
-import re
-from gee_functions import landsat, gee_classification, terra_climate
 import subprocess
-import time
+from gee_functions import landsat, vector
 
 ee.Initialize()  # Initialize the Google Earth Engine
 
 GEE_USER_PATH = 'users/Postm087'
 
-CdC = ee.FeatureCollection(
-    f'{GEE_USER_PATH}/outline_3857')  # Load the feature collection containing the area of interest
+CdC = ee.FeatureCollection(f'{GEE_USER_PATH}/outline_3857')  # Load the feature collection containing the area of interest
 cdc_coordinates = CdC.geometry().bounds().getInfo()['coordinates']
 
 
@@ -488,7 +486,7 @@ def create_features(year, aoi, year_string='unknown', season='year', features=[N
             .And(ls_mean_monthly_min_ndvi_summer.lte(.31)) \
             .And(ls_mean_monthly_max_ndwi_greenhouses_summer.lt(-.26)) \
             .And(yearly_ndvi_std_mean.gt(.14))
-        vector_irrigated_crops_mask = gee_classification.raster_to_vector(
+        vector_irrigated_crops_mask = vector.raster_to_vector(
             mask_irrigated_crops,
             aoi,
             tile_scale=2
@@ -501,7 +499,7 @@ def create_features(year, aoi, year_string='unknown', season='year', features=[N
             .And(ls_mean_monthly_max_gcvi_summer.gt(1.05)) \
             .And(ls_mean_monthly_min_ndvi_summer.gt(.31)) \
             .And(ls_mean_monthly_max_ndwi_greenhouses_summer.lt(-.26))
-        vector_irrigated_trees_mask = gee_classification.raster_to_vector(
+        vector_irrigated_trees_mask = vector.raster_to_vector(
             mask_irrigated_trees,
             aoi,
             tile_scale=2
@@ -514,7 +512,7 @@ def create_features(year, aoi, year_string='unknown', season='year', features=[N
             .And(ls_mean_monthly_max_ndwi_greenhouses.gt(-.23)) \
             .And(ls_mean_monthly_max_ndwi.gt(.06)) \
             .And(ls_mean_monthly_max_value_summer.gt(.27))
-        vector_greenhouses_mask = gee_classification.raster_to_vector(
+        vector_greenhouses_mask = vector.raster_to_vector(
             mask_greenhouses,
             aoi,
             tile_scale=2
@@ -524,7 +522,7 @@ def create_features(year, aoi, year_string='unknown', season='year', features=[N
 
         mask_potential_crops = slope.lte(5) \
             .And(ls_mean_monthly_max_gcvi_summer.gt(.7))
-        vector_potential_crops_mask = gee_classification.raster_to_vector(
+        vector_potential_crops_mask = vector.raster_to_vector(
             mask_potential_crops,
             aoi,
             tile_scale=2
@@ -536,7 +534,7 @@ def create_features(year, aoi, year_string='unknown', season='year', features=[N
         mask_rainfed_trees_crops = slope.lte(4) \
             .And(ls_mean_monthly_max_gcvi_summer.lte(1.05)) \
             .And(ls_mean_monthly_max_gcvi_summer.gte(.6))
-        vector_rainfed_trees_crops_mask = gee_classification.raster_to_vector(
+        vector_rainfed_trees_crops_mask = vector.raster_to_vector(
             mask_rainfed_trees_crops,
             aoi,
             tile_scale=2
@@ -547,7 +545,7 @@ def create_features(year, aoi, year_string='unknown', season='year', features=[N
         mask_natural_trees = slope.gte(10) \
             .And(ls_mean_monthly_min_red.lt(1000)) \
             .And(ls_mean_monthly_max_ndvi.gt(.3))
-        vector_natural_trees_mask = gee_classification.raster_to_vector(
+        vector_natural_trees_mask = vector.raster_to_vector(
             mask_natural_trees,
             aoi,
             tile_scale=2
@@ -673,17 +671,17 @@ def create_features(year, aoi, year_string='unknown', season='year', features=[N
                             cdc_coordinates)
 
 
-def classify_irrigated_areas(crop_data, data_info, vector_collection, aoi, year_string='unknown', clf='random_forest',
+def classify_irrigated_areas(training_image, data_info, vector_collection, aoi_coordinates, year_string='unknown', clf='random_forest',
                              no_trees=500, bag_fraction=.5, vps=2):
     """
     Performs a classification using pixels within the class regions obtained via thresholding as training data.
     Classification is performed on the GEE servers and results are exported to Google Drive connected to the GEE
     user account.
 
-    :param crop_data: GEE image containing all the feature data for classification.
+    :param training_image: GEE image containing all the feature data for classification.
     :param data_info: metadata regarding the feature data, used for naming the classification.
     :param vector_collection: dictionary containing the assetIds of the vector of each class.
-    :param aoi: Featurecollection representing the area of interest.
+    :param aoi_coordinates: Featurecollection representing the area of interest.
     :param year_string: year of observation, used for naming of the results.
     :param clf: classifier type, either bayes or random forest.
     :param no_trees: In case of random forest the number of trees to use for classificaiton.
@@ -691,9 +689,8 @@ def classify_irrigated_areas(crop_data, data_info, vector_collection, aoi, year_
     :param vps: In case of random forest the variables per split to use for classificaiton.
     """
 
-    bands = crop_data.bandNames()
+    bands = training_image.bandNames()  # Extracts the name of each band in the training image
     class_property = 'landuse'
-    aoi_coordinates = aoi.geometry().bounds().getInfo()['coordinates']
 
     # Create Training Areas for Multiclass classification
     rainfed_crops_trees = add_points(ee.FeatureCollection(
@@ -713,7 +710,7 @@ def classify_irrigated_areas(crop_data, data_info, vector_collection, aoi, year_
         .merge(irrigated_crops) \
         .merge(irrigated_trees)
 
-    training_multiclass = crop_data.select(bands).sampleRegions(
+    training_multiclass = training_image.select(bands).sampleRegions(
         collection=training_regions_multiclass,
         properties=[class_property],
         scale=30,
@@ -725,7 +722,7 @@ def classify_irrigated_areas(crop_data, data_info, vector_collection, aoi, year_
         classifier_naivebayes = ee.Classifier.smileNaiveBayes().train(training_multiclass, class_property)
 
         # Classify the unknown area based on the crop data using the multiclass classifiers
-        irrigated_area_classified_multiclass = crop_data \
+        irrigated_area_classified_multiclass = training_image \
             .clip(ee.FeatureCollection(f'{GEE_USER_PATH}/vector/{vector_collection["potential_crops"]}')) \
             .classify(classifier_naivebayes)
 
@@ -735,14 +732,14 @@ def classify_irrigated_areas(crop_data, data_info, vector_collection, aoi, year_
 
         export_task = ee.batch.Export.image.toDrive(
             image=irrigated_area_multiclass,
-            description=f'irrigated_areas_{clf}_{year_string}',
-            folder=f'{clf}/{data_info}',
+            description=f'ia_{clf}_{data_info}_{year_string}',
+            folder=f'{clf}_{data_info}',
             scale=30,
             region=aoi_coordinates,
         )
 
         export_task.start()
-        print(f'Export started. Year: {year_string}. Classification method: {clf}.')
+        print(f'Export started. Year: {year_string}. Classification method: {clf}. Features used {data_info}')
 
     elif clf == 'random_forest':
         # Train classifier for the multiclass classification
@@ -756,7 +753,7 @@ def classify_irrigated_areas(crop_data, data_info, vector_collection, aoi, year_
         )
 
         # Classify the unknown area based on the crop data using the multiclass classifiers
-        irrigated_area_classified_multiclass = crop_data \
+        irrigated_area_classified_multiclass = training_image \
             .clip(ee.FeatureCollection(f'{GEE_USER_PATH}/vector/{vector_collection["potential_crops"]}')) \
             .classify(classifier_multiclass)
 
@@ -766,41 +763,37 @@ def classify_irrigated_areas(crop_data, data_info, vector_collection, aoi, year_
 
         export_task = ee.batch.Export.image.toDrive(
             image=irrigated_area_multiclass,
-            description=f'ia_{no_trees}tr_{vps}vps_{int(bag_fraction * 100)}bf_{year_string}',
-            folder=f'{clf}/{data_info}',
+            description=f'ia_{clf}_{data_info}_{no_trees}tr_{vps}vps_{int(bag_fraction * 100)}bf_{year_string}',
+            folder=f'{clf}_{data_info}',
             scale=30,
             region=aoi_coordinates,
         )
 
         export_task.start()
-        print(f'Export started. Year: {year_string}. Classification method: {clf}.')
+        print(f'Export started. Year: {year_string}. Classification method: {clf}. Features used {data_info}')
 
 
 if __name__ == '__main__':
+    import itertools
+
     # Dictionary containing the date ranges for each year, will be used to select sat. imagery
     years = {
-        # '88': ('1987-01-01', '1989-01-01'),
-        # '97': ('1996-01-01', '1998-01-01'),
-        # '00': ('1999-01-01', '2001-01-01'),
-        # '05': ('2004-01-01', '2006-01-01'),
+        '88': ('1987-01-01', '1989-01-01'),
+        '97': ('1996-01-01', '1998-01-01'),
+        '00': ('1999-01-01', '2001-01-01'),
+        '05': ('2004-01-01', '2006-01-01'),
         '09': ('2008-01-01', '2010-01-01'),
     }
+
+    stats = ['mean', 'min', 'max']
+    stats_combos = list(itertools.combinations(stats, 1)) + \
+                   list(itertools.combinations(stats, 2)) + \
+                   list(itertools.combinations(stats, 3))
 
     for year in years:
         crop_data_folder = f'{GEE_USER_PATH}/raster/crop_data/'
 
-        summer_NDWI_min = ee.Image(f"{crop_data_folder}single_bands/summer/crop_data_summer_NDWI_min_{year}")
-        year_GCVI_mean = ee.Image(f"{crop_data_folder}single_bands/year/crop_data_year_GCVI_mean_{year}")
-        slope = ee.Image(f"{crop_data_folder}crop_data_min_mean_max_{year}").select('slope')
-
-        ndwi_gcvi_img = ee.ImageCollection([
-            summer_NDWI_min,
-            year_GCVI_mean,
-            slope,
-        ]).toBands()
-
         crop_data_collection = {
-            'ndwi_summer_min_gcvi_year_mean': ndwi_gcvi_img,
             'min_mean_max': ee.Image(f"{crop_data_folder}crop_data_min_mean_max_{year}"),
             'min_mean_max_summer': ee.Image(f"{crop_data_folder}crop_data_summer_min_mean_max_{year}"),
             'min_mean_max_winter': ee.Image(f"{crop_data_folder}crop_data_winter_min_mean_max_{year}"),
@@ -816,9 +809,24 @@ if __name__ == '__main__':
         }
 
         for key in crop_data_collection:
-            classify_irrigated_areas(crop_data_collection[key], key, vector_collection, CdC, year_string=year,
+            for combo in stats_combos:
+                crop_data_image = crop_data_collection[key]
+
+                bands_to_select = ['red', 'green', 'blue', '.*std.*', 'slope']
+                stat_bands = [f'.*{s}.*' for s in list(combo)]
+                bands_to_select += stat_bands
+
+                crop_data_image = crop_data_image.select(bands_to_select)
+                classification_name = "_".join(combo)
+
+                if 'summer' in key:
+                    classification_name += '_summer'
+                elif 'winter' in key:
+                    classification_name += '_winter'
+                else:
+                    classification_name += '_year'
+
+                classify_irrigated_areas(crop_data_image, classification_name, vector_collection, cdc_coordinates, year_string=year,
                                      clf='random_forest', no_trees=250, bag_fraction=.6, vps=2)
-            classify_irrigated_areas(crop_data_collection[key], key, vector_collection, CdC, year_string=year,
-                                     clf='bayes')
 
 
