@@ -1,6 +1,5 @@
 import ee
 from monthdelta import monthdelta
-import json
 from datetime import timedelta, datetime
 from dateutil.relativedelta import relativedelta
 import folium
@@ -76,6 +75,10 @@ def get_ls7_image_collection(begin_date, end_date, aoi=None):
                 .map(cloud_mask_ls457))
 
 
+def remove_edges(image):
+    return image.clip(image.geometry().buffer(-6000))
+
+
 # Preprocessing
 def cloud_mask_ls457(image):  # Cloud masking function
     """
@@ -112,8 +115,18 @@ def add_ndwi_ls457(image):
 
 
 def add_ndwi_mcfeeters_ls457(image):
-    ndwi = image.normalizedDifference(['B2', 'B5']).rename('NDWIGH');
+    ndwi = image.normalizedDifference(['B2', 'B5']).rename('NDWIGH')
     return image.addBands(ndwi)
+
+
+def add_ndbi_ls457(image):
+    ndbi = image.normalizedDifference(['B5', 'B4']).rename('NDBI')
+    return image.addBands(ndbi)
+
+
+def add_bu_ls457(image):
+    bu = image.select('NDBI').subtract(image.select('NDVI')).rename('BU')
+    return image.addBands(bu)
 
 
 def add_ndvi_ls123(image):
@@ -167,7 +180,7 @@ def add_gcvi_ls457(image):
     Calculates the Green Chlorophyll Vegetation Index (GCVI) for Landsat 4,5 & 7 Imagery
     """
     gcvi = image.expression(
-        'NIR / G - 1', {
+        '(NIR/G) - 1', {
             'NIR': image.select('B4'),
             'G': image.select('B2'),
         }
@@ -278,7 +291,7 @@ def get_vis_params_rgb_ls457(minVal=0, maxVal=3000, gamma=1.4):
     return params
 
 
-def create_monthly_index_images(image_collection, band, start_date, end_date, aoi, stats=['mean']):
+def create_monthly_index_images(image_collection, band, start_date, end_date, aoi, stats=['mean'], bimonthly=False):
     """
     Generate monthly NDVI images for a aoi
     :param image_collection: EE imagecollection of NDVI images to be used for the calculation of monthly median NDVI
@@ -306,55 +319,60 @@ def create_monthly_index_images(image_collection, band, start_date, end_date, ao
         start_month = start_date + monthdelta(i)
         end_month = start_date + monthdelta(i + 1) - timedelta(days=1)
 
+        filler_data = image_collection.filter(ee.Filter.date(start_month - monthdelta(1), start_month)).merge(
+            image_collection.filter(ee.Filter.date(end_month, end_month + monthdelta(1)))).select(band)
+
         monthly_stats = []
 
         for stat in stats:
             if stat == 'mean':
                 monthly_mean = (image_collection.filter(
-                    ee.Filter.date(start_month, end_month))
-                                .select(band)
-                                .mean()
-                                .clip(aoi)
-                                .rename(f'mean')
-                                .set('month', start_month.month)
-                                .set('year', start_month.year)
-                                .set('date_info',
-                                     ee.String(f'{band}_{datetime.strftime(start_month, "%b")}_{start_month.year}'))
-                                .set('system:time_start', ee.Date(start_month).millis())
-                                )
+                        ee.Filter.date(start_month, end_month))
+                                    .select(band)
+                                    .mean()
+                                    .rename(f'mean')
+                                    .set('month', start_month.month)
+                                    .set('year', start_month.year)
+                                    .set('date_info',
+                                         ee.String(f'{band}_{datetime.strftime(start_month, "%b")}_{start_month.year}'))
+                                    .set('system:time_start', ee.Date(start_month).millis())
+                                    )
+                monthly_mean = monthly_mean.unmask(filler_data.mean(), True).clip(aoi)
                 monthly_stats += [monthly_mean]
             elif stat == 'min':
                 monthly_min = (image_collection.filter(
-                    ee.Filter.date(start_month, end_month))
-                               .select(band)
-                               .reduce(ee.Reducer.percentile(ee.List([10])))
-                               .clip(aoi)
-                               .rename(f'min')
-                               .set('month', start_month.month)
-                               .set('year', start_month.year)
-                               .set('date_info',
-                                    ee.String(f'{band}_{datetime.strftime(start_month, "%b")}_{start_month.year}'))
-                               .set('system:time_start', ee.Date(start_month).millis())
-                               )
+                        ee.Filter.date(start_month, end_month))
+                                   .select(band)
+                                   .reduce(ee.Reducer.percentile(ee.List([10])))
+                                   .rename(f'min')
+                                   .set('month', start_month.month)
+                                   .set('year', start_month.year)
+                                   .set('date_info',
+                                        ee.String(f'{band}_{datetime.strftime(start_month, "%b")}_{start_month.year}'))
+                                   .set('system:time_start', ee.Date(start_month).millis())
+                                   )
+                monthly_min = monthly_min.unmask(filler_data.reduce(ee.Reducer.percentile(ee.List([10]))), True).clip(aoi)
                 monthly_stats += [monthly_min]
             elif stat == 'max':
                 monthly_max = (image_collection.filter(
-                    ee.Filter.date(start_month, end_month))
-                               .select(band)
-                               .reduce(ee.Reducer.percentile(ee.List([90])))
-                               .clip(aoi)
-                               .rename(f'max')
-                               .set('month', start_month.month)
-                               .set('year', start_month.year)
-                               .set('date_info',
-                                    ee.String(f'{band}_{datetime.strftime(start_month, "%b")}_{start_month.year}'))
-                               .set('system:time_start', ee.Date(start_month).millis())
-                               )
+                        ee.Filter.date(start_month, end_month))
+                                   .select(band)
+                                   .reduce(ee.Reducer.percentile(ee.List([90])))
+                                   .rename(f'max')
+                                   .set('month', start_month.month)
+                                   .set('year', start_month.year)
+                                   .set('date_info',
+                                        ee.String(f'{band}_{datetime.strftime(start_month, "%b")}_{start_month.year}'))
+                                   .set('system:time_start', ee.Date(start_month).millis())
+                                   )
+
+                monthly_max = monthly_max.unmask(filler_data.reduce(ee.Reducer.percentile(ee.List([90]))), True).clip(aoi)
                 monthly_stats += [monthly_max]
             elif stat == 'median':
                 monthly_median = (image_collection.filter(
                     ee.Filter.date(start_month, end_month))
                                   .select(band)
+                                  .map(remove_edges)
                                   .median()
                                   .clip(aoi)
                                   .rename(f'median')
@@ -364,15 +382,19 @@ def create_monthly_index_images(image_collection, band, start_date, end_date, ao
                                        ee.String(f'{band}_{datetime.strftime(start_month, "%b")}_{start_month.year}'))
                                   .set('system:time_start', ee.Date(start_month).millis())
                                   )
+                monthly_median = monthly_median.unmask(filler_data.median(), True).clip(aoi)
                 monthly_stats += [monthly_median]
             else:
                 raise ValueError("Unknown statistic entered, please pick from: ['mean', 'max', 'min', 'median'].")
 
         for ind, st in enumerate(monthly_stats):
-            if ind == 0:
-                img = monthly_stats[0]
+            if bimonthly:
+                img = st
             else:
-                img = img.addBands(st)
+                if ind == 0:
+                    img = monthly_stats[0]
+                else:
+                    img = img.addBands(st)
 
         images = images.add(img)
 
@@ -734,18 +756,19 @@ def join_precipitation(image_collection, start_date, end_date, aoi):
         end_year = ee.Date(adj_start_date).advance(1, 'years')
 
         yearly_pr = ee.ImageCollection('IDAHO_EPSCOR/TERRACLIMATE').filterDate(begin_year, end_year) \
-            .filterBounds(aoi).select('pr').sum().clip(aoi)
+            .filterBounds(aoi).select('pr').sum()
 
         for m in range(0, 12):
             start_date_ndvi = adj_start_date.advance(m, 'months')
             start_date_pr = start_date_ndvi.advance(-1, 'months')
             filtered_image = image_collection.filterDate(start_date_ndvi, start_date_ndvi.advance(1, 'months')).median()
             pr = ee.ImageCollection('IDAHO_EPSCOR/TERRACLIMATE').filterDate(start_date_pr, start_date_ndvi) \
-                .filterBounds(aoi).select('pr').mean().clip(aoi)
+                .filterBounds(aoi).select('pr').mean()
             pr = pr.divide(yearly_pr)
 
-            filtered_image = filtered_image.addBands(pr).set('system:time_start', ee.Date(start_date_ndvi).millis())
-            pr_added = pr_added.add(filtered_image)
+            filtered_image = filtered_image.addBands(pr).set('system:time_start', ee.Date(start_date_ndvi).millis())\
+                .set('month', (m+1))
+            pr_added = pr_added.add(filtered_image.clip(aoi))
 
     return ee.ImageCollection(pr_added)
 
