@@ -1,6 +1,8 @@
 import ee
 import re
 import subprocess
+import time
+import datetime
 from .constants import GEE_USER_PATH
 
 
@@ -11,6 +13,7 @@ def export_to_asset(asset, asset_type, asset_id, region):
     :param asset_type: String specifying if the asset is a vector ('vector') or ('image').
     :param asset_id: ID under which the asset will be saved
     :param region: Vector representing the area of interest
+    :return task: Returns a started GEE export task
     """
     if not asset_type in ['vector', 'image']:
         raise Exception('unknown asset type, please use vector or image')
@@ -46,6 +49,7 @@ def export_to_asset(asset, asset_type, asset_id, region):
             maxPixels=1e13,
         )
         export_task.start()
+        return export_task
 
     elif asset_type == 'vector':
         export_task = ee.batch.Export.table.toAsset(
@@ -55,5 +59,25 @@ def export_to_asset(asset, asset_type, asset_id, region):
         )
 
         export_task.start()
+        return export_task
 
     print(f"Export started for {asset_id}")
+
+
+def track_task(task):
+    """ Function for the tracking of a GEE export task"""
+    starttime = time.time()
+    while True:
+        mins_running = round((time.time() - starttime) / 60)
+        status = task.status()
+        if status['state'] == 'COMPLETED':
+            print(f'\rTask Completed, runtime: {mins_running}')
+            return True
+        elif status['state'] == 'FAILED':
+            if 'Cannot overwrite asset' in status['error_message']:
+                print('Asset Already Exists')
+                return True
+            raise(RuntimeError)(f'Export task failed: {status["error_message"]}')
+        print(f'\rRunning Task ({mins_running} min)\r')
+        time.sleep(60.0 - ((time.time() - starttime) % 60.0))
+

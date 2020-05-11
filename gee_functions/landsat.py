@@ -20,12 +20,12 @@ def get_ls4_image_collection(begin_date, end_date, aoi=None):
     """
     if aoi is None:
         return (ee.ImageCollection('LANDSAT/LT04/C01/T1_SR')
-                .select('B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'pixel_qa')
+                .select('B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'pixel_qa')
                 .filterDate(begin_date, end_date)
                 .map(cloud_mask_ls457))
     else:
         return (ee.ImageCollection('LANDSAT/LT04/C01/T1_SR')
-                .select('B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'pixel_qa')
+                .select('B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'pixel_qa')
                 .filterBounds(aoi)
                 .filterDate(begin_date, end_date)
                 .map(cloud_mask_ls457))
@@ -42,12 +42,12 @@ def get_ls5_image_collection(begin_date, end_date, aoi=None):
         """
     if aoi is None:
         return (ee.ImageCollection('LANDSAT/LT05/C01/T1_SR')
-                .select('B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'pixel_qa')
+                .select('B1', 'B2', 'B3', 'B4', 'B5', 'B6','B7', 'pixel_qa')
                 .filterDate(begin_date, end_date)
                 .map(cloud_mask_ls457))
     else:
         return (ee.ImageCollection('LANDSAT/LT05/C01/T1_SR')
-                .select('B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'pixel_qa')
+                .select('B1', 'B2', 'B3', 'B4', 'B5', 'B6','B7', 'pixel_qa')
                 .filterBounds(aoi)
                 .filterDate(begin_date, end_date)
                 .map(cloud_mask_ls457))
@@ -64,19 +64,45 @@ def get_ls7_image_collection(begin_date, end_date, aoi=None):
         """
     if aoi is None:
         return (ee.ImageCollection('LANDSAT/LE07/C01/T1_SR')
-                .select('B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'pixel_qa')
+                .select('B1', 'B2', 'B3', 'B4', 'B5', 'B6','B7', 'pixel_qa')
                 .filterDate(begin_date, end_date)
                 .map(cloud_mask_ls457))
     else:
         return (ee.ImageCollection('LANDSAT/LE07/C01/T1_SR')
-                .select('B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'pixel_qa')
+                .select('B1', 'B2', 'B3', 'B4', 'B5', 'B6','B7', 'pixel_qa')
                 .filterBounds(aoi)
                 .filterDate(begin_date, end_date)
                 .map(cloud_mask_ls457))
 
 
+def get_ls8_image_collection(begin_date, end_date, aoi=None):
+    """
+        Calls the GEE API to collect scenes from the Landsat 7 Tier 1 Surface Reflectance Libraries
+
+        :param begin_date: Begin date for time period for scene selection
+        :param end_date: End date for time period for scene selection
+        :param aoi: Optional, only select scenes that cover this aoi
+        :return: cloud masked GEE image collection
+        """
+    if aoi is None:
+        return (ee.ImageCollection('LANDSAT/LC08/C01/T1_SR')
+                .filterDate(begin_date, end_date)
+                .select('B2', 'B3', 'B4', 'B5', 'B6', 'B10', 'B7', 'pixel_qa')
+                .map(rename_ls8_bands)
+                .map(cloud_mask_ls8))
+    else:
+        return (ee.ImageCollection('LANDSAT/LC08/C01/T1_SR')
+                .select('B2', 'B3', 'B4', 'B5', 'B6', 'B10', 'B7', 'pixel_qa')
+                .filterDate(begin_date, end_date).filterBounds(aoi)
+                .map(rename_ls8_bands)
+                .map(cloud_mask_ls8))
+
+
 def remove_edges(image):
     return image.clip(image.geometry().buffer(-6000))
+
+def rename_ls8_bands(image):
+    return image.rename(['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'pixel_qa'])
 
 
 # Preprocessing
@@ -98,6 +124,26 @@ def cloud_mask_ls457(image):  # Cloud masking function
     return image.updateMask(cloud.Not()).updateMask(mask2)
 
 
+def cloud_mask_ls8(image):
+    """
+    Function to mask clouds based on the pixel_qa band of Landsat 8 SR data
+
+    :param {ee.Image} image input Landsat 8 SR image
+    :return {ee.Image} cloudmasked Landsat 8 image
+    """
+
+    # Bits 3 and 5 are cloud shadow and cloud, respectively.
+    cloudShadowBitMask = (1 << 3)
+    cloudsBitMask = (1 << 5)
+    # Get the pixel QA band.
+    qa = image.select('pixel_qa')
+    # Both flags should be set to zero, indicating clear conditions.
+    mask = qa.bitwiseAnd(cloudShadowBitMask).eq(0).And(qa.bitwiseAnd(cloudsBitMask).eq(0))
+
+    return image.updateMask(mask)
+
+
+# spectral indices
 def add_ndvi_ls457(image):
     """
     Calculates the Normalized Difference Vegetation Index(NDVI) for Landsat 4,5 & 7 Scenes
@@ -210,85 +256,6 @@ def rgb_to_hsv(image):
     image_hsv = image.select(['B3', 'B2', 'B1']).multiply(0.0001).rgbToHsv()
 
     return image_hsv.copyProperties(image).set('system:time_start', image.get('system:time_start'))
-
-
-# Generate visual parameters for visualization
-def get_vis_params_cp(band, min_val, max_val, palette=None, opacity=1):
-    """
-    Returns a dictionary for the visual parameters for a single band color palette representation
-
-    :param band: Name of the band to visualize
-    :param min: minimum value for color range
-    :param max: maximum value for color range
-    :param palette: optional, color palette vor visualization. Default is red yellow green.
-    :return: Returns a dictionary containing parameters for visualization
-    """
-    if palette is None:
-        palette = ["red", "orange", "yellow", "green", "darkgreen"]
-
-    params = {
-        'bands': band,
-        'min': min_val,
-        'max': max_val,
-        'palette': palette,
-        'opacity': opacity
-    }
-    return params
-
-
-def get_vis_params_ndvi():
-    """
-    Return the visual parameters for NDVI maps, representing the values with a red to green color palette
-    """
-    params = {
-        'bands': ["NDVI"],
-        'min': -1,
-        'max': 1,
-        'palette': ["red", "orange", "yellow", "green", "darkgreen"],
-    }
-    return params
-
-
-def get_vis_params_classes(band, number_of_classes=1):
-    """
-    Return the visual parameters for Catgorical maps, representing the values with a red to green color palette
-    """
-
-    params = {
-        'bands': [band],
-        'min': 0,
-        'max': number_of_classes - 1,
-        'palette': ["red", "orange", "yellow", "green", "darkgreen"],
-    }
-    return params
-
-
-def get_vis_params_pr_ndvi():
-    params = {
-        'bands': ["NDVI_pr"],
-        'min': -1,
-        'max': 1,
-        'palette': ["red", "orange", "yellow", "green", "darkgreen"],
-    }
-    return params
-
-
-def get_vis_params_rgb_ls457(minVal=0, maxVal=3000, gamma=1.4):
-    """
-    Return the visual parameters for RGB maps
-
-    :param minVal: Min Value
-    :param maxVal: Max Value
-    :param gamma: Gamma Value
-    :return: Dictionary containing the parameters for visualization
-    """
-    params = {
-        'bands': ["B3", "B2", "B1"],
-        'min': minVal,
-        'max': maxVal,
-        'gamma': gamma,
-    }
-    return params
 
 
 def create_monthly_index_images(image_collection, band, start_date, end_date, aoi, stats=['mean'], bimonthly=False):
