@@ -6,7 +6,7 @@ from .constants import GEE_USER_PATH
 from .vector import split_region
 
 
-def create_features(year, aoi, aoi_name, year_string, season='year'):
+def create_features(year, aoi, aoi_name, year_string, season='year', user_path=None, ):
     """
     Exports the features need for classification to the GEE as assets. The assets will later be loaded in
     during classification.
@@ -238,8 +238,10 @@ def create_features(year, aoi, aoi_name, year_string, season='year'):
             yearly_wgi_std_mean.rename('WGI_std'),
             slope
         ]).toBands()
-        task = export_to_asset(crop_data_min_mean_max, 'image', f"crop_data/{aoi_name}/crop_data_min_mean_max_{aoi_name}_{year_string}",
-                        aoi_coordinates)
+        task = export_to_asset(crop_data_min_mean_max, 'image',
+                               f"crop_data/{aoi_name}/crop_data_min_mean_max_{aoi_name}_{year_string}",
+                               aoi_coordinates,
+                               user_path=user_path)
         return task
 
     elif season == 'summer':
@@ -365,9 +367,13 @@ def create_features(year, aoi, aoi_name, year_string, season='year'):
             twi.rename('TWI'),
             slope
         ]).toBands()
-        task = export_to_asset(crop_data_min_mean_max, 'image',
-                        f"crop_data/{aoi_name}/crop_data_summer_min_median_max_{aoi_name}_{year_string}",
-                        aoi_coordinates)
+        task = export_to_asset(
+            crop_data_min_mean_max,
+            'image',
+            f"crop_data/{aoi_name}/crop_data_summer_min_median_max_{aoi_name}_{year_string}",
+            aoi_coordinates,
+            user_path=user_path
+        )
         return task
 
     elif season == 'winter':
@@ -502,11 +508,12 @@ def create_features(year, aoi, aoi_name, year_string, season='year'):
             'image',
             f"crop_data/{aoi_name}/crop_data_winter_min_median_max_{aoi_name}_{year_string}",
             aoi_coordinates,
+            user_path=user_path
         )
         return task
 
 
-def create_training_areas(aoi, data_image, aoi_name, year_string, season=None):
+def create_training_areas(aoi, data_image, aoi_name, year_string, season=None, user_path=None, ):
     if not season in ['summer', 'winter']:
         raise ValueError('unknown season string, please enter either "winter" or "summer"')
 
@@ -586,8 +593,13 @@ def create_training_areas(aoi, data_image, aoi_name, year_string, season=None):
         training_regions_image = training_regions_image.addBands(
             mask_potential_crops.rename('classification_area'))
 
-        task = export_to_asset(training_regions_image, 'image', f"training_areas/{aoi_name}/training_areas_summer_{aoi_name}_{year_string}",
-                        aoi_coordinates)
+        task = export_to_asset(
+            training_regions_image,
+            'image',
+            f"training_areas/{aoi_name}/training_areas_summer_{aoi_name}_{year_string}",
+            aoi_coordinates,
+            user_path=user_path
+        )
         print(
             f'Export task started for year: {aoi_name} {year_string}.')
         return task
@@ -606,7 +618,7 @@ def create_training_areas(aoi, data_image, aoi_name, year_string, season=None):
         mask_irrigated_trees = data_image.select('slope').lte(4).And(
             data_image.select('min_WGI').gt(0)).And(
             data_image.select('median_NDWIGH').lt(-.28).And(
-            data_image.select('swir').gt(1000))
+                data_image.select('swir').gt(1000))
         )
 
         blue_threshold = ee.Number(data_image.select('blue').reduceRegion(
@@ -655,13 +667,18 @@ def create_training_areas(aoi, data_image, aoi_name, year_string, season=None):
         training_regions_image = training_regions_image.addBands(
             mask_potential_crops.rename('classification_area'))
 
-        task = export_to_asset(training_regions_image, 'image', f"training_areas/{aoi_name}/training_areas_winter_{aoi_name}_{year_string}",
-                        aoi_coordinates)
+        task = export_to_asset(
+            training_regions_image,
+            'image',
+            f"training_areas/{aoi_name}/training_areas_winter_{aoi_name}_{year_string}",
+            aoi_coordinates,
+            user_path=user_path
+        )
         print(f'Export task started for year: {aoi_name} {year_string}.')
         return task
 
 
-def classify_irrigated_areas(training_image, training_areas, aoi, data_info, aoi_name=None, year=None,
+def classify_irrigated_areas(training_image, training_areas, aoi, data_info, aoi_name=None, year=None, user_path=None,
                              clf='random_forest', no_trees=500, bag_fraction=.5, vps=2):
     """
     Performs a classification using pixels within the class regions obtained via thresholding as training data.
@@ -746,6 +763,7 @@ def classify_irrigated_areas(training_image, training_areas, aoi, data_info, aoi
             'image',
             f"results/random_forest/{aoi_name}/ia_{clf}_{data_info}_{no_trees}tr_{vps}vps_{int(bag_fraction * 100)}bf_{aoi_name}_{year}",
             aoi_coordinates,
+            user_path=user_path,
         )
         print(
             f'Export started. AOI: {aoi_name}.\nYear: {year}.\nClassification algorithm: {clf}.\nFeatures used {data_info}.\n')
@@ -753,8 +771,7 @@ def classify_irrigated_areas(training_image, training_areas, aoi, data_info, aoi
 
 
 def join_seasonal_irrigated_areas(irrigated_area_summer, irrigated_area_winter, aoi_name, year, aoi_coordinates,
-                                  export_method='drive'):
-
+                                  export_method='drive', user_path=None, ):
     summer = ee.Image().constant(1).where(irrigated_area_summer.eq(1), 3).where(irrigated_area_summer.eq(2), 2)
     winter = ee.Image().constant(1).where(irrigated_area_winter.eq(1), 4).where(irrigated_area_winter.eq(2), 5)
 
@@ -787,8 +804,11 @@ def join_seasonal_irrigated_areas(irrigated_area_summer, irrigated_area_winter, 
         task = export_task_ext.start()
         return task
     elif export_method == 'asset':
-        task = export_to_asset(results, 'image',
-                        f"results/irrigated_area/{aoi_name}/irrigated_areas_{aoi_name}_{year}",
-                        aoi_coordinates)
+        task = export_to_asset(
+            results,
+            'image',
+            f"results/irrigated_area/{aoi_name}/irrigated_areas_{aoi_name}_{year}",
+            aoi_coordinates,
+            user_path=user_path
+        )
         return task
-

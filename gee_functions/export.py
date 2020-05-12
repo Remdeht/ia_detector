@@ -6,7 +6,7 @@ import datetime
 from .constants import GEE_USER_PATH
 
 
-def export_to_asset(asset, asset_type, asset_id, region):
+def export_to_asset(asset, asset_type, asset_id, region, user_path=None):
     """
     Exports a vector or image to the GEE asset collection
     :param asset: GEE Image or FeatureCollection
@@ -15,10 +15,14 @@ def export_to_asset(asset, asset_type, asset_id, region):
     :param region: Vector representing the area of interest
     :return task: Returns a started GEE export task
     """
+
+    if user_path is None:
+        user_path = GEE_USER_PATH
+
     if not asset_type in ['vector', 'image']:
         raise ValueError('unknown asset type, please use vector or image')
 
-    if ee.data.getInfo(f'{GEE_USER_PATH}/raster{asset_id}') or ee.data.getInfo(f'{GEE_USER_PATH}/vector{asset_id}'):
+    if ee.data.getInfo(f'{user_path}/raster{asset_id}') or ee.data.getInfo(f'{user_path}/vector{asset_id}'):
         raise Exception('asset already exists')
 
     if '/' in asset_id:
@@ -30,11 +34,11 @@ def export_to_asset(asset, asset_type, asset_id, region):
         for x in range(0, len(folders)):
             folder_str += f'/{folders[x]}'
             if asset_type == 'image':
-                if not ee.data.getInfo(f'{GEE_USER_PATH}/raster{folder_str}'):
-                    ee.data.createAsset({'type':'FOLDER'}, f'{GEE_USER_PATH}/raster{folder_str}')
+                if not ee.data.getInfo(f'{user_path}/raster{folder_str}'):
+                    ee.data.createAsset({'type':'FOLDER'}, f'{user_path}/raster{folder_str}')
             elif asset_type == 'vector':
-                if not ee.data.getInfo(f'{GEE_USER_PATH}/vector{folder_str}'):
-                    ee.data.createAsset({'type':'FOLDER'}, f'{GEE_USER_PATH}/vector{folder_str}')
+                if not ee.data.getInfo(f'{user_path}/vector{folder_str}'):
+                    ee.data.createAsset({'type':'FOLDER'}, f'{user_path}/vector{folder_str}')
 
     else:
         description = asset_id
@@ -45,7 +49,7 @@ def export_to_asset(asset, asset_type, asset_id, region):
         export_task = ee.batch.Export.image.toAsset(
             image=asset,
             description=description,
-            assetId=f'{GEE_USER_PATH}/raster/{asset_id}',
+            assetId=f'{user_path}/raster/{asset_id}',
             scale=30,
             region=region,
             maxPixels=1e13,
@@ -57,7 +61,7 @@ def export_to_asset(asset, asset_type, asset_id, region):
         export_task = ee.batch.Export.table.toAsset(
             collection=asset,
             description=description,
-            assetId=f'{GEE_USER_PATH}/vector/{asset_id}',
+            assetId=f'{user_path}/vector/{asset_id}',
         )
 
         export_task.start()
