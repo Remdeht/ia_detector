@@ -16,7 +16,10 @@ def export_to_asset(asset, asset_type, asset_id, region):
     :return task: Returns a started GEE export task
     """
     if not asset_type in ['vector', 'image']:
-        raise Exception('unknown asset type, please use vector or image')
+        raise ValueError('unknown asset type, please use vector or image')
+
+    if ee.data.getInfo(f'{GEE_USER_PATH}/raster{asset_id}') or ee.data.getInfo(f'{GEE_USER_PATH}/vector{asset_id}'):
+        raise Exception('asset already exists')
 
     if '/' in asset_id:
         # If a "/" is present the asset is supposed to be saved in a deeper folder. The following lines make sure that
@@ -27,19 +30,18 @@ def export_to_asset(asset, asset_type, asset_id, region):
         for x in range(0, len(folders)):
             folder_str += f'/{folders[x]}'
             if asset_type == 'image':
-                subprocess.check_call(  # calls the earthengine command line tool to create a folder
-                    f'earthengine create folder {GEE_USER_PATH}/raster{folder_str}'
-                )
+                if not ee.data.getInfo(f'{GEE_USER_PATH}/raster{folder_str}'):
+                    ee.data.createAsset({'type':'FOLDER'}, f'{GEE_USER_PATH}/raster{folder_str}')
             elif asset_type == 'vector':
-                subprocess.check_call(
-                    f'earthengine create folder {GEE_USER_PATH}/vector{folder_str}'
-                )
+                if not ee.data.getInfo(f'{GEE_USER_PATH}/vector{folder_str}'):
+                    ee.data.createAsset({'type':'FOLDER'}, f'{GEE_USER_PATH}/vector{folder_str}')
 
     else:
         description = asset_id
 
     if asset_type == 'image':
-        asset = asset.regexpRename('([0-9]{1,3}_)', '')  # removes number before each bandname
+        asset = asset.regexpRename('([0-9]{1,3}_)', '')
+        # removes number before each bandname
         export_task = ee.batch.Export.image.toAsset(
             image=asset,
             description=description,
@@ -69,15 +71,19 @@ def track_task(task):
     starttime = time.time()
     while True:
         mins_running = round((time.time() - starttime) / 60)
-        status = task.status()
+        try:
+            status = task.status()
+        except ConnectionResetError:
+            time.sleep(15)
+            status = task.status()
         if status['state'] == 'COMPLETED':
-            print(f'\rTask Completed, runtime: {mins_running}')
+            print(f'\r Task Completed, runtime: {mins_running}')
             return True
         elif status['state'] == 'FAILED':
             if 'Cannot overwrite asset' in status['error_message']:
-                print('Asset Already Exists')
+                print('\r Asset Already Exists')
                 return True
             raise(RuntimeError)(f'Export task failed: {status["error_message"]}')
-        print(f'\rRunning Task ({mins_running} min)\r')
+        print(f'\r Running Task ({mins_running} min)')
         time.sleep(60.0 - ((time.time() - starttime) % 60.0))
 

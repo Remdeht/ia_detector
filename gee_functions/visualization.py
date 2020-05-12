@@ -1,4 +1,5 @@
 import folium
+from branca.element import Template, MacroElement
 
 
 def create_folium_map(images, name=None, coords=[20, 0], zoom=3, height=5000):
@@ -13,13 +14,24 @@ def create_folium_map(images, name=None, coords=[20, 0], zoom=3, height=5000):
     """
     folium_map = folium.Map(location=coords, zoom_start=zoom, height=height, control_scale=True)
 
-    for key in images:
+    if images is None:
         folium.TileLayer(
-            tiles=images[key]['tile_fetcher'].url_format,
-            attr='Map Data &copy; <a href="https://earthengine.google.com/">Google Earth Engine</a>',
+            tiles='https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+            attr='Google',
+            name='Google Maps',
             overlay=True,
-            name=key,
+            control=True
         ).add_to(folium_map)
+
+    else:
+        for key in images:
+            folium.TileLayer(
+                tiles=images[key]['tile_fetcher'].url_format,
+                attr='Map Data &copy; <a href="https://earthengine.google.com/">Google Earth Engine</a>',
+                overlay=True,
+                name=key,
+            ).add_to(folium_map)
+
 
     folium_map.add_child(folium.LayerControl())
 
@@ -27,6 +39,108 @@ def create_folium_map(images, name=None, coords=[20, 0], zoom=3, height=5000):
         folium_map.save(f'{name}.html')
 
     return folium_map
+
+
+def create_categorical_legend(map, palette, classnames):
+    categories = ""
+    for ind, cl in enumerate(palette):
+        categories += f"<li><span style='background:#{cl};opacity:0.85;'></span>{classnames[ind]}</li>"
+
+    template_head = """
+    {% macro html(this, kwargs) %}
+
+    <!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>jQuery UI Draggable - Default functionality</title>
+      <link rel="stylesheet" href="//code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+
+      <script src="https://code.jquery.com/jquery-1.12.4.js"></script>
+      <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
+
+      <script>
+      $( function() {
+        $( "#maplegend" ).draggable({
+                        start: function (event, ui) {
+                            $(this).css({
+                                right: "auto",
+                                top: "auto",
+                                bottom: "auto"
+                            });
+                        }
+                    });
+    });
+
+      </script>
+    </head>
+    <body>
+    """
+
+    styling = f"""
+    <div id='maplegend' class='maplegend' 
+        style='position: absolute; z-index:9999; border:2px solid grey; background-color:rgba(255, 255, 255, 0.8);
+         border-radius:6px; padding: 10px; font-size:14px; right: 20px; bottom: 20px;'>
+
+    <div class='legend-title'>Legend</div>
+    <div class='legend-scale'>
+      <ul class='legend-labels'>
+        {categories}
+      </ul>
+    </div>
+    </div>
+
+    </body>
+    </html>
+    """
+    end = """
+    <style type='text/css'>
+      .maplegend .legend-title {
+        text-align: left;
+        margin-bottom: 5px;
+        font-weight: bold;
+        font-size: 90%;
+        }
+      .maplegend .legend-scale ul {
+        margin: 0;
+        margin-bottom: 5px;
+        padding: 0;
+        float: left;
+        list-style: none;
+        }
+      .maplegend .legend-scale ul li {
+        font-size: 80%;
+        list-style: none;
+        margin-left: 0;
+        line-height: 18px;
+        margin-bottom: 2px;
+        }
+      .maplegend ul.legend-labels li span {
+        display: block;
+        float: left;
+        height: 16px;
+        width: 30px;
+        margin-right: 5px;
+        margin-left: 0;
+        border: 1px solid #999;
+        }
+      .maplegend .legend-source {
+        font-size: 80%;
+        color: #777;
+        clear: both;
+        }
+      .maplegend a {
+        color: #777;
+        }
+    </style>
+    {% endmacro %}"""
+
+    template = template_head + styling + end
+    macro = MacroElement()
+    macro._template = Template(template)
+
+    return map.get_root().add_child(macro)
 
 
 # Generate visual parameters for visualization
@@ -69,6 +183,7 @@ def vis_params_rgb_ls457(bands= [], minVal=0, maxVal=3000, gamma=1.4):
         'gamma': gamma,
     }
     return params
+
 
 def vis_irrigated_area_map(band=['ia_year']):
     params = {
