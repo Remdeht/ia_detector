@@ -367,14 +367,20 @@ def create_features(year, aoi, aoi_name, year_string, season='year', user_path=N
             twi.rename('TWI'),
             slope
         ]).toBands()
-        task = export_to_asset(
-            crop_data_min_mean_max,
-            'image',
-            f"crop_data/{aoi_name}/crop_data_summer_min_median_max_{aoi_name}_{year_string}",
-            aoi_coordinates,
-            user_path=user_path
-        )
-        return task
+
+        try:
+            task = export_to_asset(
+                crop_data_min_mean_max,
+                'image',
+                f"crop_data/{aoi_name}/crop_data_summer_min_median_max_{aoi_name}_{year_string}",
+                aoi_coordinates,
+                user_path=user_path
+            )
+        except FileExistsError as e:
+            print(e)
+            return True
+        else:
+            return task
 
     elif season == 'winter':
         early_filter = ee.Filter.rangeContains('month', 1, 3)
@@ -503,19 +509,41 @@ def create_features(year, aoi, aoi_name, year_string, season='year', user_path=N
             slope
         ]).toBands()
 
-        task = export_to_asset(
-            crop_data_min_mean_max,
-            'image',
-            f"crop_data/{aoi_name}/crop_data_winter_min_median_max_{aoi_name}_{year_string}",
-            aoi_coordinates,
-            user_path=user_path
-        )
-        return task
+        try:
+            task = export_to_asset(
+                crop_data_min_mean_max,
+                'image',
+                f"crop_data/{aoi_name}/crop_data_winter_min_median_max_{aoi_name}_{year_string}",
+                aoi_coordinates,
+                user_path=user_path
+            )
+        except FileExistsError as e:
+            print(e)
+            return True
+        else:
+            return task
 
 
-def create_training_areas(aoi, data_image, aoi_name, year_string, season=None, user_path=None, ):
+def create_training_areas(aoi, data_image, aoi_name, year_string, season=None, user_path=None, clf_folder=None):
+    """
+    Creates a map containing the training areas for classification using thresholding.
+
+    :param aoi: GEE FeatureCollection containing a polygon of the area of interest
+    :param data_image: GEE Image containing the feature data from used to select the traning areas
+    :param aoi_name: name of the area of interest
+    :param year_string: year for which the traninig areas are selected
+    :param season: season for which the training areas are selected
+    :param user_path: GEE user path to which the training areas will be exported
+    :param clf_folder: Optional folder for storing the training areas
+    :return: GEE export task
+    """
     if not season in ['summer', 'winter']:
         raise ValueError('unknown season string, please enter either "winter" or "summer"')
+
+    if clf_folder is None:
+        loc = f"training_areas/{aoi_name}/training_areas_{season}_{aoi_name}_{year_string}"
+    else:
+        loc = f"training_areas/{aoi_name}/{clf_folder}/training_areas_{season}_{aoi_name}_{year_string}"
 
     aoi_coordinates = aoi.geometry().bounds().getInfo()['coordinates']
     if season == 'summer':
@@ -593,16 +621,19 @@ def create_training_areas(aoi, data_image, aoi_name, year_string, season=None, u
         training_regions_image = training_regions_image.addBands(
             mask_potential_crops.rename('classification_area'))
 
-        task = export_to_asset(
-            training_regions_image,
-            'image',
-            f"training_areas/{aoi_name}/training_areas_summer_{aoi_name}_{year_string}",
-            aoi_coordinates,
-            user_path=user_path
-        )
-        print(
-            f'Export task started for year: {aoi_name} {year_string}.')
-        return task
+        try:
+            task = export_to_asset(
+                training_regions_image,
+                'image',
+                loc,
+                aoi_coordinates,
+                user_path=user_path
+            )
+        except FileExistsError as e:
+            print(e)
+            return True
+        else:
+            return task
 
     elif season == 'winter':
 
@@ -617,9 +648,7 @@ def create_training_areas(aoi, data_image, aoi_name, year_string, season=None, u
 
         mask_irrigated_trees = data_image.select('slope').lte(4).And(
             data_image.select('min_WGI').gt(0)).And(
-            data_image.select('median_NDWIGH').lt(-.28).And(
-                data_image.select('swir').gt(1000))
-        )
+            data_image.select('median_NDWIGH').lt(-.28))
 
         blue_threshold = ee.Number(data_image.select('blue').reduceRegion(
             reducer=ee.Reducer.percentile([97]),
@@ -667,19 +696,23 @@ def create_training_areas(aoi, data_image, aoi_name, year_string, season=None, u
         training_regions_image = training_regions_image.addBands(
             mask_potential_crops.rename('classification_area'))
 
-        task = export_to_asset(
-            training_regions_image,
-            'image',
-            f"training_areas/{aoi_name}/training_areas_winter_{aoi_name}_{year_string}",
-            aoi_coordinates,
-            user_path=user_path
-        )
-        print(f'Export task started for year: {aoi_name} {year_string}.')
-        return task
+        try:
+            task = export_to_asset(
+                training_regions_image,
+                'image',
+                loc,
+                aoi_coordinates,
+                user_path=user_path
+            )
+        except FileExistsError as e:
+            print(e)
+            return True
+        else:
+            return task
 
 
 def classify_irrigated_areas(training_image, training_areas, aoi, data_info, aoi_name=None, year=None, user_path=None,
-                             clf='random_forest', no_trees=500, bag_fraction=.5, vps=2):
+                             clf_folder=None, clf='random_forest', no_trees=500, bag_fraction=.5, vps=2):
     """
     Performs a classification using pixels within the class regions obtained via thresholding as training data.
     Classification is performed on the GEE servers and results are exported to Google Drive connected to the GEE
@@ -695,6 +728,11 @@ def classify_irrigated_areas(training_image, training_areas, aoi, data_info, aoi
     :param bag_fraction: In case of random forest the bag fraction to use for classificaiton.
     :param vps: In case of random forest the variables per split to use for classificaiton.
     """
+
+    if clf_folder is None:
+        loc = f"results/random_forest/{aoi_name}/ia_{clf}_{data_info}_{no_trees}tr_{vps}vps_{int(bag_fraction * 100)}bf_{aoi_name}_{year}"
+    else:
+        loc = f"results/random_forest/{aoi_name}/{clf_folder}/ia_{clf}_{data_info}_{no_trees}tr_{vps}vps_{int(bag_fraction * 100)}bf_{aoi_name}_{year}"
 
     class_property = 'training'
     aoi_coordinates = aoi.geometry().bounds().getInfo()['coordinates']
@@ -725,7 +763,7 @@ def classify_irrigated_areas(training_image, training_areas, aoi, data_info, aoi
         # Get mask of areas were forest loss has occurred in the period.
         forest_change = ee.Image("UMD/hansen/global_forest_change_2018_v1_6").select('lossyear').clip(aoi)
 
-        if int(year) in range(0, 19):
+        if int(year) in range(1, 19):
             forest_change_mask = forest_change.eq(ee.Number(int(year)))
             # Classify the unknown area based on the crop data using the multiclass classifiers
             irrigated_area_classified_multiclass = training_image \
@@ -758,20 +796,29 @@ def classify_irrigated_areas(training_image, training_areas, aoi, data_info, aoi
         # )
         # export_task_ext.start()
 
-        task = export_to_asset(
-            irrigated_results,
-            'image',
-            f"results/random_forest/{aoi_name}/ia_{clf}_{data_info}_{no_trees}tr_{vps}vps_{int(bag_fraction * 100)}bf_{aoi_name}_{year}",
-            aoi_coordinates,
-            user_path=user_path,
-        )
-        print(
-            f'Export started. AOI: {aoi_name}.\nYear: {year}.\nClassification algorithm: {clf}.\nFeatures used {data_info}.\n')
-        return task
+        try:
+
+            task = export_to_asset(
+                irrigated_results,
+                'image',
+                loc,
+                aoi_coordinates,
+                user_path=user_path,
+            )
+        except FileExistsError as e:
+            print(e)
+            return True
+        else:
+            return task
 
 
 def join_seasonal_irrigated_areas(irrigated_area_summer, irrigated_area_winter, aoi_name, year, aoi_coordinates,
-                                  export_method='drive', user_path=None, ):
+                                  export_method='drive', user_path=None, clf_folder=None):
+    if clf_folder is None:
+        loc = f"results/irrigated_area/{aoi_name}/irrigated_areas_{aoi_name}_{year}"
+    else:
+        loc = f"results/irrigated_area/{aoi_name}/{clf_folder}/irrigated_areas_{aoi_name}_{year}"
+
     summer = ee.Image().constant(1).where(irrigated_area_summer.eq(1), 3).where(irrigated_area_summer.eq(2), 2)
     winter = ee.Image().constant(1).where(irrigated_area_winter.eq(1), 4).where(irrigated_area_winter.eq(2), 5)
 
@@ -797,18 +844,23 @@ def join_seasonal_irrigated_areas(irrigated_area_summer, irrigated_area_winter, 
         export_task_ext = ee.batch.Export.image.toDrive(
             image=results,
             description=f'ia_{year}',
-            folder=f'ia_result_map',
+            folder=loc.replace('/', '_'),
             scale=30,
             region=aoi_coordinates,
         )
         task = export_task_ext.start()
         return task
     elif export_method == 'asset':
-        task = export_to_asset(
-            results,
-            'image',
-            f"results/irrigated_area/{aoi_name}/irrigated_areas_{aoi_name}_{year}",
-            aoi_coordinates,
-            user_path=user_path
-        )
-        return task
+        try:
+            task = export_to_asset(
+                results,
+                'image',
+                loc,
+                aoi_coordinates,
+                user_path=user_path
+            )
+        except FileExistsError as e:
+            print(e)
+            return True
+        else:
+            return task

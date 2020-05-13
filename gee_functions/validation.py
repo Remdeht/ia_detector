@@ -69,7 +69,7 @@ def calc_validation_score(mask, validation_polygons, mask_name='irrigated_area',
         return feature
 
     mask = mask.rename(mask_name)
-    validation_polygons = validation_polygons.map(convert_to_polygons).flatten()
+    # validation_polygons = validation_polygons.map(convert_to_polygons).flatten()
     validation_polygons_scored = validation_polygons.map(validate_irrigated_area)
 
     validation_score = validation_polygons_scored.reduceColumns(
@@ -77,9 +77,19 @@ def calc_validation_score(mask, validation_polygons, mask_name='irrigated_area',
         reducer=ee.Reducer.mean()
     )
 
+    result = ee.FeatureCollection(ee.Feature(None, validation_score))
+
     if export is True:
         export_task = ee.batch.Export.table.toDrive(
-            collection=validation_score,
+            collection=validation_polygons_scored,
+            description=f'validation_ic',
+            folder=f'accuracy_polygons_kml',
+            fileFormat='KML'
+        )
+        export_task.start()
+
+        export_task = ee.batch.Export.table.toDrive(
+            collection=result,
             description=f'validation_ic',
             folder=f'accuracy_scores',
             fileFormat='CSV'
@@ -91,7 +101,7 @@ def calc_validation_score(mask, validation_polygons, mask_name='irrigated_area',
         return validation_score
 
 
-def sample_featurecollection(fc, fraction=.2, max_area=1000000, min_area=50000, seed=4):
+def sample_featurecollection(fc, fraction=.2, max_area=1000000, min_area=50000, seed=0):
     """Samples features from a featurecollection"""
     fc = fc.randomColumn(seed=seed)
     filter_max_area = ee.Filter.lte('area', max_area)
