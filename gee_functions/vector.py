@@ -82,10 +82,10 @@ def split_region(region):
         evenOdd=False,
     )
 
-    bottom_left_poly = new_poly_1.intersection(region)
-    bottom_right_poly = new_poly_2.intersection(region)
-    top_right_poly = new_poly_3.intersection(region)
-    top_left_poly = new_poly_4.intersection(region)
+    bottom_left_poly = new_poly_1.intersection(region, maxError=1)
+    bottom_right_poly = new_poly_2.intersection(region, maxError=1)
+    top_right_poly = new_poly_3.intersection(region, maxError=1)
+    top_left_poly = new_poly_4.intersection(region, maxError=1)
 
     return {
         'top_left': top_left_poly,
