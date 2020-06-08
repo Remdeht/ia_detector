@@ -4,10 +4,10 @@ from . import sentinel
 from . import indices
 from .export import export_to_asset
 from .hydrology import add_twi
-from .constants import GEE_USER_PATH
-from .vector import split_region
-from . import visualization
-from gee_functions import thresholds
+# from .constants import GEE_USER_PATH
+# from .vector import split_region
+# from . import visualization
+# from gee_functions import thresholds
 
 FRACTION = .20
 

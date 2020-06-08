@@ -482,21 +482,7 @@ def create_monthly_index_images_v2(image_collection, start_date, end_date, aoi, 
                                   .set('system:time_start', ee.Date(start_month).millis())
                                   )
 
-                from gee_functions.export import export_to_asset
-
-
-                # export_to_asset(monthly_median, 'image', 'raster/testing/before_rdm_upd', aoi.geometry().bounds().getInfo()['coordinates'])
-
-                # export_to_asset(monthly_median.unmask(filler_data.qualityMosaic('pixel_qa')), 'image', 'raster/testing/qm', aoi.geometry())
-
-                # monthly_median = gap_fill(monthly_median, filler_data.median(), 17, False).clip(aoi)
-
-                # export_to_asset(monthly_median, 'image', 'raster/testing/after_rdm_upd', aoi.geometry().bounds().getInfo()['coordinates'])
-
                 monthly_median = monthly_median.unmask(filler_data.median(), True).clip(aoi)
-
-                # export_to_asset(monthly_median, 'image', 'raster/testing/median_rdm_upd',
-                #                 aoi.geometry().bounds().getInfo()['coordinates'])
 
                 monthly_stats += [monthly_median]
 
