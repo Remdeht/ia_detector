@@ -1,12 +1,26 @@
 import ee
 from . import landsat
+from . import sentinel
+from . import indices
 from .export import export_to_asset
 from .hydrology import add_twi
 from .constants import GEE_USER_PATH
 from .vector import split_region
+from . import visualization
+from gee_functions import thresholds
+
+FRACTION = .20
 
 
-def create_features(year, aoi, aoi_name, year_string, season='year', user_path=None, ):
+def get_fraction_training_pixels(obj):
+    return ee.Number(ee.Dictionary(obj).get('count')).multiply(FRACTION).toInt()
+
+
+def get_count(obj):
+    return ee.Number(ee.Dictionary(obj).get('count'))
+
+
+def create_features(year, aoi, aoi_name, year_string, season='year', collection='Landsat'):
     """
     Exports the features need for classification to the GEE as assets. The assets will later be loaded in
     during classification.
@@ -24,507 +38,197 @@ def create_features(year, aoi, aoi_name, year_string, season='year', user_path=N
 
     aoi_coordinates = aoi.geometry().bounds().getInfo()['coordinates']
 
-    # Retrieve landsat 5 and 7 imagery for the period and merge them together
-    ls_5 = landsat.get_ls5_image_collection(begin, end, aoi)
-    ls_7 = landsat.get_ls7_image_collection(begin, end, aoi)
-    ls_8 = landsat.get_ls8_image_collection(begin, end, aoi)
+    if collection == 'landsat':
+        scale = 30
+        # Retrieve landsat 5 and 7 imagery for the period and merge them together
+        ls_5 = landsat.get_ls5_image_collection(begin, end, aoi)
+        ls_7 = landsat.get_ls7_image_collection(begin, end, aoi)
+        ls_8 = landsat.get_ls8_image_collection(begin, end, aoi)
 
-    ls = ls_5.merge(ls_7).merge(ls_8).map(landsat.remove_edges)
+        col = ls_5.merge(ls_7).merge(ls_8).map(landsat.remove_edges)
 
-    # Calculate indices to be used in the classification
-    ls_gcvi = ls.map(landsat.add_gcvi_ls457).filter(ee.Filter.listContains('system:band_names', 'GCVI'))
-    ls_ndvi = ls.map(landsat.add_ndvi_ls457).filter(ee.Filter.listContains('system:band_names', 'NDVI'))
-    ls_ndwi = ls.map(landsat.add_ndwi_ls457).filter(ee.Filter.listContains('system:band_names', 'NDWI'))
-    ls_ndwi_greenhouses = ls.map(landsat.add_ndwi_mcfeeters_ls457).filter(
-        ee.Filter.listContains('system:band_names', 'NDWIGH'))
-    ls_ndbi = ls_ndvi.map(landsat.add_ndbi_ls457).filter(ee.Filter.listContains('system:band_names', 'NDBI'))
-    ls_wgi = ls_gcvi.map(landsat.add_ndwi_ls457).filter(ee.Filter.listContains('system:band_names', 'NDWI')) \
-        .map(landsat.add_wgi_ls457).filter(ee.Filter.listContains('system:band_names', 'WGI'))
+    elif collection == 'sentinel':
+        scale = 10
+        col = sentinel.get_s2_image_collection(begin, end, aoi)
 
-    # Create monthly images for each index, containing both the mean value and, the 10th and 90th percentile,
-    # for each month
-
-    ls_monthly_blue = landsat.create_monthly_index_images(
-        image_collection=ls,
-        band='B1',
+    col_monthly = landsat.create_monthly_index_images_v2(
+        image_collection=col,
         start_date=begin,
         end_date=end,
         aoi=aoi,
-        stats=['mean', 'median']
+        stats=['median']
     )
 
-    ls_monthly_green = landsat.create_monthly_index_images(
-        image_collection=ls,
-        band='B2',
-        start_date=begin,
-        end_date=end,
-        aoi=aoi,
-        stats=['mean', 'median']
-    )
+    col_monthly = col_monthly.select(
+        ['R', 'G', 'B', 'NIR', 'SWIR', 'THERMAL', 'SWIR2'])
 
-    ls_monthly_red = landsat.create_monthly_index_images(
-        image_collection=ls,
-        band='B3',
-        start_date=begin,
-        end_date=end,
-        aoi=aoi,
-        stats=['mean', 'median']
-    )
-
-    ls_monthly_thermal = landsat.create_monthly_index_images(
-        image_collection=ls,
-        band='B6',
-        start_date=begin,
-        end_date=end,
-        aoi=aoi,
-        stats=['mean', 'median']
-    )
-
-    ls_monthly_swir_2 = landsat.create_monthly_index_images(
-        image_collection=ls,
-        band='B7',
-        start_date=begin,
-        end_date=end,
-        aoi=aoi,
-        stats=['mean', 'median']
-    )
-
-    ls_monthly_ndvi = landsat.create_monthly_index_images(
-        image_collection=ls_ndvi,
-        band='NDVI',
-        start_date=begin,
-        end_date=end,
-        aoi=aoi,
-        stats=['mean', 'median']
-    )
-
-    ls_monthly_gcvi = landsat.create_monthly_index_images(
-        image_collection=ls_gcvi,
-        band='GCVI',
-        start_date=begin,
-        end_date=end,
-        aoi=aoi,
-        stats=['mean', 'median']
-    )
-
-    ls_monthly_ndwi = landsat.create_monthly_index_images(
-        image_collection=ls_ndwi,
-        band='NDWI',
-        start_date=begin,
-        end_date=end,
-        aoi=aoi,
-        stats=['mean', 'median']
-    )
-
-    ls_monthly_wgi = landsat.create_monthly_index_images(
-        image_collection=ls_wgi,
-        band='WGI',
-        start_date=begin,
-        end_date=end,
-        aoi=aoi,
-        stats=['mean', 'median']
-    )
-
-    ls_monthly_ndwi_greenhouses = landsat.create_monthly_index_images(
-        image_collection=ls_ndwi_greenhouses,
-        band='NDWIGH',
-        start_date=begin,
-        end_date=end,
-        aoi=aoi,
-        stats=['mean', 'median']
-    )
-
-    ls_monthly_ndbi = landsat.create_monthly_index_images(
-        image_collection=ls_ndbi,
-        band='NDBI',
-        start_date=begin,
-        end_date=end,
-        aoi=aoi,
-        stats=['mean', 'median']
-    )
+    col_monthly = col_monthly.map(indices.add_gcvi).filter(ee.Filter.listContains('system:band_names', 'GCVI')) \
+        .map(indices.add_ndvi).filter(ee.Filter.listContains('system:band_names', 'NDVI')) \
+        .map(indices.add_ndwi).filter(ee.Filter.listContains('system:band_names', 'NDWI')) \
+        .map(indices.add_ndwi_swir_2).filter(ee.Filter.listContains('system:band_names', 'NDWI2')) \
+        .map(indices.add_ndwi_mcfeeters).filter(ee.Filter.listContains('system:band_names', 'NDWIGH')) \
+        .map(indices.add_ndbi).filter(ee.Filter.listContains('system:band_names', 'NDBI')) \
+        .map(indices.add_wgi).filter(ee.Filter.listContains('system:band_names', 'WGI')) \
+        .map(indices.add_savi).filter(ee.Filter.listContains('system:band_names', 'SAVI'))
 
     twi = add_twi().clip(aoi)
 
     # Finally calculate the slope for the area of interest
-    elevation = ee.Image('JAXA/ALOS/AW3D30/V2_2').select('AVE_DSM')
-    slope = ee.Terrain.slope(elevation).clip(aoi).rename('slope')
+    slope = ee.Terrain.slope(ee.Image("USGS/SRTMGL1_003").select('elevation')).clip(aoi).rename('slope')
 
-    # Based on class analysis the pixels for classes can be obtained by applying thresholds.
+    # Based on class analysis the pixecol for classes can be obtained by applying thresholds.
     # Next up the masks for each class will be created.
 
     # Create an image out of all the feature maps created. This Image will be used for classification and training
-    if season == 'year':
-
-        ls_mean_monthly_median_blue = ls_monthly_blue.select('mean').mean().rename('blue')
-        ls_mean_monthly_median_green = ls_monthly_green.select('mean').mean().rename('green median')
-        ls_mean_monthly_median_red = ls_monthly_red.select('mean').mean().rename('red median')
-
-        ls_mean_monthly_median_ndvi = ls_monthly_ndvi.select('mean').mean().rename('NDVI median')
-        ls_mean_monthly_max_ndvi = ls_monthly_ndvi.select('mean').max().rename('NDVI max')
-        ls_mean_monthly_min_ndvi = ls_monthly_ndvi.select('mean').min().rename('NDVI min')
-
-        ls_mean_monthly_median_gcvi = ls_monthly_gcvi.select('mean').mean().rename('GCVI median')
-        ls_mean_monthly_max_gcvi = ls_monthly_gcvi.select('mean').max().rename('GCVI max')
-        ls_mean_monthly_min_gcvi = ls_monthly_gcvi.select('mean').min().rename('GCVI min')
-
-        ls_mean_monthly_median_ndwi = ls_monthly_ndwi.select('mean').mean().rename('NDWI median')
-        ls_mean_monthly_max_ndwi = ls_monthly_ndwi.select('mean').max().rename('NDWI max')
-        ls_mean_monthly_min_ndwi = ls_monthly_ndwi.select('mean').min().rename('NDWI min')
-
-        ls_mean_monthly_median_ndwi_greenhouses = ls_monthly_ndwi_greenhouses.select('mean').mean().rename(
-            'NDWIGH median')
-        ls_mean_monthly_max_ndwi_greenhouses = ls_monthly_ndwi_greenhouses.select('mean').max().rename('NDWIGH max')
-        ls_mean_monthly_min_ndwi_greenhouses = ls_monthly_ndwi_greenhouses.select('mean').min().rename('NDWIGH min')
-
-        # Next create standard deviation maps for both the seasonal and yearly NDWI and NDVI values.
-
-        yearly_std_ndvi = landsat.get_yearly_band_std(
-            ls_monthly_ndvi,
-            ['median'],
-            begin,
-            end,
-            aoi
-        )
-
-        yearly_std_ndwi = landsat.get_yearly_band_std(
-            ls_monthly_ndwi,
-            ['median'],
-            begin,
-            end,
-            aoi
-        )
-
-        yearly_std_gcvi = landsat.get_yearly_band_std(
-            ls_monthly_gcvi,
-            ['median'],
-            begin,
-            end,
-            aoi
-        )
-
-        yearly_std_wgi = landsat.get_yearly_band_std(
-            ls_monthly_wgi,
-            ['median'],
-            begin,
-            end,
-            aoi
-        )
-
-        # Take the median for the periods that will be used during thresholding.
-        yearly_ndvi_std_mean = yearly_std_ndvi.select('median_std').mean()
-        yearly_ndwi_std_mean = yearly_std_ndwi.select('median_std').mean()
-        yearly_gcvi_std_mean = yearly_std_gcvi.select('median_std').mean()
-        yearly_wgi_std_mean = yearly_std_wgi.select('median_std').mean()
-
-        crop_data_min_mean_max = ee.ImageCollection([
-            ls_mean_monthly_median_blue.rename('blue'),
-            ls_mean_monthly_median_green.rename('green'),
-            ls_mean_monthly_median_red.rename('red'),
-            ls_mean_monthly_min_gcvi.rename('min_GCVI'),
-            ls_mean_monthly_median_gcvi.rename('median_GCVI'),
-            ls_mean_monthly_max_gcvi.rename('max_GCVI'),
-            ls_mean_monthly_min_ndvi.rename('min_NDVI'),
-            ls_mean_monthly_median_ndvi.rename('median_NDVI'),
-            ls_mean_monthly_max_ndvi.rename('max_NDVI'),
-            ls_mean_monthly_min_ndwi.rename('min_NDWI'),
-            ls_mean_monthly_median_ndwi.rename('median_NDWI'),
-            ls_mean_monthly_max_ndwi.rename('max_NDWI'),
-            ls_mean_monthly_min_ndwi_greenhouses.rename('min_NDWIGH'),
-            ls_mean_monthly_median_ndwi_greenhouses.rename('median_NDWIGH'),
-            ls_mean_monthly_max_ndwi_greenhouses.rename('max_NDWIGH'),
-            yearly_ndvi_std_mean.rename('NDVI_std'),
-            yearly_gcvi_std_mean.rename('GCVI_std'),
-            yearly_ndwi_std_mean.rename('NDWI_std'),
-            yearly_wgi_std_mean.rename('WGI_std'),
-            slope
-        ]).toBands()
-        task = export_to_asset(crop_data_min_mean_max, 'image',
-                               f"crop_data/{aoi_name}/crop_data_min_mean_max_{aoi_name}_{year_string}",
-                               aoi_coordinates,
-                               user_path=user_path)
-        return task
-
-    elif season == 'summer':
-        # ls_monthly_value_summer = ls_monthly_value.filter(ee.Filter.rangeContains('month', 4, 9))
-        ls_monthly_blue_summer = ls_monthly_blue.filter(ee.Filter.rangeContains('month', 4, 9))
-        ls_monthly_green_summer = ls_monthly_green.filter(ee.Filter.rangeContains('month', 4, 9))
-        ls_monthly_red_summer = ls_monthly_red.filter(ee.Filter.rangeContains('month', 4, 9))
-        ls_monthly_thermal_summer = ls_monthly_thermal.filter(ee.Filter.rangeContains('month', 4, 9))
-        ls_monthly_swir_2_summer = ls_monthly_swir_2.filter(ee.Filter.rangeContains('month', 4, 9))
-        ls_monthly_ndvi_summer = ls_monthly_ndvi.filter(ee.Filter.rangeContains('month', 4, 9))
-        ls_monthly_gcvi_summer = ls_monthly_gcvi.filter(ee.Filter.rangeContains('month', 4, 9))
-        ls_monthly_ndwi_summer = ls_monthly_ndwi.filter(ee.Filter.rangeContains('month', 4, 9))
-        ls_monthly_wgi_summer = ls_monthly_wgi.filter(ee.Filter.rangeContains('month', 4, 9))
-        ls_monthly_ndbi_summer = ls_monthly_ndbi.filter(ee.Filter.rangeContains('month', 4, 9))
-        ls_monthly_ndwi_greenhouses_summer = ls_monthly_ndwi_greenhouses.filter(
-            ee.Filter.rangeContains('month', 4, 9))
-
-        # Same principle only now for the summer months
-
-        ls_mean_monthly_median_blue_summer = ls_monthly_blue_summer.select('mean').mean().rename('blue')
-        ls_mean_monthly_median_green_summer = ls_monthly_green_summer.select('mean').mean().rename('green')
-        ls_mean_monthly_median_red_summer = ls_monthly_red_summer.select('mean').mean().rename('red')
-        ls_mean_monthly_median_thermal_summer = ls_monthly_thermal_summer.select('mean').mean().rename('thermal')
-        ls_mean_monthly_median_swir_2_summer = ls_monthly_swir_2_summer.select('mean').mean().rename('swir')
-
-        ls_mean_monthly_median_ndvi_summer = ls_monthly_ndvi_summer.select('mean').mean()
-        ls_mean_monthly_max_ndvi_summer = ls_monthly_ndvi_summer.select('mean').max()
-        ls_mean_monthly_min_ndvi_summer = ls_monthly_ndvi_summer.select('mean').min()
-
-        ls_mean_monthly_median_gcvi_summer = ls_monthly_gcvi_summer.select('mean').mean()
-        ls_mean_monthly_max_gcvi_summer = ls_monthly_gcvi_summer.select('mean').max()
-        ls_mean_monthly_min_gcvi_summer = ls_monthly_gcvi_summer.select('mean').min()
-
-        ls_mean_monthly_median_ndwi_summer = ls_monthly_ndwi_summer.select('mean').mean()
-        ls_mean_monthly_max_ndwi_summer = ls_monthly_ndwi_summer.select('mean').max()
-        ls_mean_monthly_min_ndwi_summer = ls_monthly_ndwi_summer.select('mean').min()
-
-        ls_mean_monthly_median_wgi_summer = ls_monthly_wgi_summer.select('mean').mean()
-        ls_mean_monthly_max_wgi_summer = ls_monthly_wgi_summer.select('mean').max()
-        ls_mean_monthly_min_wgi_summer = ls_monthly_wgi_summer.select('mean').min()
-
-        ls_mean_monthly_mean_ndbi_summer = ls_monthly_ndbi_summer.select('mean').mean()
-        ls_mean_monthly_max_ndbi_summer = ls_monthly_ndbi_summer.select('mean').max()
-        ls_mean_monthly_min_ndbi_summer = ls_monthly_ndbi_summer.select('mean').min()
-
-        ls_mean_monthly_median_ndwi_greenhouses_summer = ls_monthly_ndwi_greenhouses_summer.select(
-            'mean').mean()
-        ls_mean_monthly_max_ndwi_greenhouses_summer = ls_monthly_ndwi_greenhouses_summer.select(
-            'mean').max()
-        ls_mean_monthly_min_ndwi_greenhouses_summer = ls_monthly_ndwi_greenhouses_summer.select(
-            'mean').min()
-
-        # Next create standard deviation maps for both the seasonal and yearly NDWI and NDVI values.
-        summer_std_ndvi = landsat.get_yearly_band_std(
-            ls_monthly_ndvi,
-            ['median'],
-            begin,
-            end,
-            aoi,
-            season='summer'
-        )
-
-        summer_std_ndwi = landsat.get_yearly_band_std(
-            ls_monthly_ndwi,
-            ['median'],
-            begin,
-            end,
-            aoi,
-            season='summer'
-        )
-
-        summer_std_gcvi = landsat.get_yearly_band_std(
-            ls_monthly_gcvi,
-            ['median'],
-            begin,
-            end,
-            aoi,
-            season='summer'
-        )
-
-        summer_std_wgi = landsat.get_yearly_band_std(
-            ls_monthly_wgi,
-            ['median'],
-            begin,
-            end,
-            aoi,
-            season='summer'
-        )
-
-        summer_ndvi_std_mean = summer_std_ndvi.select('median_std').mean()
-        summer_ndwi_std_mean = summer_std_ndwi.select('median_std').mean()
-        summer_gcvi_std_mean = summer_std_gcvi.select('median_std').mean()
-        summer_wgi_std_mean = summer_std_wgi.select('median_std').mean()
-
-        crop_data_min_mean_max = ee.ImageCollection([
-            ls_mean_monthly_median_blue_summer,
-            ls_mean_monthly_median_green_summer,
-            ls_mean_monthly_median_red_summer,
-            ls_mean_monthly_median_thermal_summer,
-            ls_mean_monthly_median_swir_2_summer,
-            ls_mean_monthly_min_gcvi_summer.rename('min_GCVI'),
-            ls_mean_monthly_median_gcvi_summer.rename('median_GCVI'),
-            ls_mean_monthly_max_gcvi_summer.rename('max_GCVI'),
-            ls_mean_monthly_min_ndvi_summer.rename('min_NDVI'),
-            ls_mean_monthly_median_ndvi_summer.rename('median_NDVI'),
-            ls_mean_monthly_max_ndvi_summer.rename('max_NDVI'),
-            ls_mean_monthly_min_ndwi_summer.rename('min_NDWI'),
-            ls_mean_monthly_median_ndwi_summer.rename('median_NDWI'),
-            ls_mean_monthly_max_ndwi_summer.rename('max_NDWI'),
-            ls_mean_monthly_min_wgi_summer.rename('min_WGI'),
-            ls_mean_monthly_median_wgi_summer.rename('median_WGI'),
-            ls_mean_monthly_max_wgi_summer.rename('max_WGI'),
-            ls_mean_monthly_min_ndwi_greenhouses_summer.rename('min_NDWIGH'),
-            ls_mean_monthly_median_ndwi_greenhouses_summer.rename('median_NDWIGH'),
-            ls_mean_monthly_max_ndwi_greenhouses_summer.rename('max_NDWIGH'),
-            ls_mean_monthly_mean_ndbi_summer.rename('median_NDBI'),
-            ls_mean_monthly_max_ndbi_summer.rename('max_NDBI'),
-            ls_mean_monthly_min_ndbi_summer.rename('min_NDBI'),
-            summer_ndvi_std_mean.rename('NDVI_std'),
-            summer_gcvi_std_mean.rename('GCVI_std'),
-            summer_ndwi_std_mean.rename('NDWI_std'),
-            summer_wgi_std_mean.rename('WGI_std'),
-            twi.rename('TWI'),
-            slope
-        ]).toBands()
-
-        try:
-            task = export_to_asset(
-                crop_data_min_mean_max,
-                'image',
-                f"crop_data/{aoi_name}/crop_data_summer_min_median_max_{aoi_name}_{year_string}",
-                aoi_coordinates,
-                user_path=user_path
-            )
-        except FileExistsError as e:
-            print(e)
-            return True
-        else:
-            return task
-
+    if season == 'summer':
+        col_monthly_season = col_monthly.filter(ee.Filter.rangeContains('month', 4, 9))
     elif season == 'winter':
         early_filter = ee.Filter.rangeContains('month', 1, 3)
         late_filter = ee.Filter.rangeContains('month', 10, 12)
+        col_monthly_season = col_monthly.filter(ee.Filter.Or(early_filter, late_filter))
 
-        ls_monthly_blue_winter = ls_monthly_blue.filter(ee.Filter.Or(early_filter, late_filter))
-        ls_monthly_green_winter = ls_monthly_green.filter(ee.Filter.Or(early_filter, late_filter))
-        ls_monthly_red_winter = ls_monthly_red.filter(ee.Filter.Or(early_filter, late_filter))
-        ls_monthly_thermal_winter = ls_monthly_thermal.filter(ee.Filter.Or(early_filter, late_filter))
-        ls_monthly_swir_2_winter = ls_monthly_swir_2.filter(ee.Filter.Or(early_filter, late_filter))
-        ls_monthly_ndvi_winter = ls_monthly_ndvi.filter(ee.Filter.Or(early_filter, late_filter))
-        ls_monthly_gcvi_winter = ls_monthly_gcvi.filter(ee.Filter.Or(early_filter, late_filter))
-        ls_monthly_ndwi_winter = ls_monthly_ndwi.filter(ee.Filter.Or(early_filter, late_filter))
-        ls_monthly_wgi_winter = ls_monthly_wgi.filter(ee.Filter.Or(early_filter, late_filter))
-        ls_monthly_ndbi_winter = ls_monthly_ndbi.filter(ee.Filter.Or(early_filter, late_filter))
-        ls_monthly_ndwi_greenhouses_winter = ls_monthly_ndwi_greenhouses.filter(
-            ee.Filter.Or(early_filter, late_filter))
+    col_mean_monthly_median_blue = col_monthly_season.select('B').mean().rename('blue')
+    col_mean_monthly_median_green = col_monthly_season.select('G').mean().rename('green')
+    col_mean_monthly_median_red = col_monthly_season.select('R').mean().rename('red')
+    col_mean_monthly_median_nir = col_monthly_season.select('NIR').mean().rename('nir')
+    col_mean_monthly_median_swir_1 = col_monthly_season.select('SWIR').mean().rename('swir1')
+    col_mean_monthly_median_swir_2 = col_monthly_season.select('SWIR2').mean().rename('swir2')
 
-        # And Winter
-        ls_mean_monthly_median_blue_winter = ls_monthly_blue_winter.select('mean').mean().rename('blue')
-        ls_mean_monthly_median_green_winter = ls_monthly_green_winter.select('mean').mean().rename('green')
-        ls_mean_monthly_median_red_winter = ls_monthly_red_winter.select('mean').mean().rename('red')
-        ls_mean_monthly_median_thermal_winter = ls_monthly_thermal_winter.select('mean').mean().rename('thermal')
-        ls_mean_monthly_median_swir_2_winter = ls_monthly_swir_2_winter.select('mean').mean().rename('swir')
+    col_mean_monthly_median_ndvi = col_monthly_season.select('NDVI').mean()
+    col_max_monthly_median_ndvi = col_monthly_season.select('NDVI').max()
+    col_min_monthly_median_ndvi = col_monthly_season.select('NDVI').reduce(ee.Reducer.percentile([20]))
 
-        ls_mean_monthly_median_ndvi_winter = ls_monthly_ndvi_winter.select('mean').mean().rename('NDVI median')
-        ls_mean_monthly_max_ndvi_winter = ls_monthly_ndvi_winter.select('mean').max().rename('NDVI max')
-        ls_mean_monthly_min_ndvi_winter = ls_monthly_ndvi_winter.select('mean').min().rename('NDVI min')
+    col_mean_monthly_median_gcvi = col_monthly_season.select('GCVI').mean()
+    col_max_monthly_median_gcvi = col_monthly_season.select('GCVI').max()
+    col_min_monthly_median_gcvi = col_monthly_season.select('GCVI').reduce(ee.Reducer.percentile([20]))
 
-        ls_mean_monthly_median_gcvi_winter = ls_monthly_gcvi_winter.select('mean').mean().rename('GCVI median')
-        ls_mean_monthly_max_gcvi_winter = ls_monthly_gcvi_winter.select('mean').max().rename('GCVI max')
-        ls_mean_monthly_min_gcvi_winter = ls_monthly_gcvi_winter.select('mean').min().rename('GCVI min')
+    col_mean_monthly_median_ndwi = col_monthly_season.select('NDWI').mean()
+    col_max_monthly_median_ndwi = col_monthly_season.select('NDWI').max()
+    col_min_monthly_median_ndwi = col_monthly_season.select('NDWI').reduce(ee.Reducer.percentile([20]))
 
-        ls_mean_monthly_median_ndwi_winter = ls_monthly_ndwi_winter.select('mean').mean().rename('NDWI median')
-        ls_mean_monthly_max_ndwi_winter = ls_monthly_ndwi_winter.select('mean').max().rename('NDWI max')
-        ls_mean_monthly_min_ndwi_winter = ls_monthly_ndwi_winter.select('mean').min().rename('NDWI min')
+    col_mean_monthly_median_ndwi2 = col_monthly_season.select('NDWI2').mean()
+    col_max_monthly_median_ndwi2 = col_monthly_season.select('NDWI2').max()
+    col_min_monthly_median_ndwi2 = col_monthly_season.select('NDWI2').reduce(ee.Reducer.percentile([20]))
 
-        ls_mean_monthly_median_wgi_winter = ls_monthly_wgi_winter.select('mean').mean().rename('WGI median')
-        ls_mean_monthly_max_wgi_winter = ls_monthly_wgi_winter.select('mean').max().rename('WGI max')
-        ls_mean_monthly_min_wgi_winter = ls_monthly_wgi_winter.select('mean').min().rename('WGI min')
+    col_mean_monthly_median_wgi = col_monthly_season.select('WGI').mean()
+    col_max_monthly_median_wgi = col_monthly_season.select('WGI').max()
+    col_min_monthly_median_wgi = col_monthly_season.select('WGI').reduce(ee.Reducer.percentile([20]))
 
-        ls_mean_monthly_mean_ndbi_winter = ls_monthly_ndbi_winter.select('mean').mean().rename('NDBI mean')
-        ls_mean_monthly_max_ndbi_winter = ls_monthly_ndbi_winter.select('mean').max().rename('NDBI max')
-        ls_mean_monthly_min_ndbi_winter = ls_monthly_ndbi_winter.select('mean').min().rename('NDBI min')
+    col_mean_monthly_median_savi = col_monthly_season.select('SAVI').mean()
+    col_max_monthly_median_savi = col_monthly_season.select('SAVI').max()
+    col_min_monthly_median_savi = col_monthly_season.select('SAVI').reduce(ee.Reducer.percentile([20]))
 
-        ls_mean_monthly_median_ndwi_greenhouses_winter = ls_monthly_ndwi_greenhouses_winter.select(
-            'mean').mean().rename(
-            'NDWIGH median')
-        ls_mean_monthly_max_ndwi_greenhouses_winter = ls_monthly_ndwi_greenhouses_winter.select(
-            'mean').max().rename(
-            'NDWIGH max')
-        ls_mean_monthly_min_ndwi_greenhouses_winter = ls_monthly_ndwi_greenhouses_winter.select(
-            'mean').min().rename(
-            'NDWIGH min')
+    col_mean_monthly_mean_ndbi = col_monthly_season.select('NDBI').mean()
+    col_max_monthly_median_ndbi = col_monthly_season.select('NDBI').max()
+    col_min_monthly_median_ndbi = col_monthly_season.select('NDBI').reduce(ee.Reducer.percentile([20]))
 
-        winter_std_ndvi = landsat.get_yearly_band_std(
-            ls_monthly_ndvi,
-            ['median'],
-            begin,
-            end,
-            aoi,
-            season='winter'
+    col_mean_monthly_median_ndwi_greenhouses = col_monthly_season.select('NDWIGH').mean()
+    col_max_monthly_median_ndwi_greenhouses = col_monthly_season.select('NDWIGH').max()
+    col_min_monthly_median_ndwi_greenhouses = col_monthly_season.select('NDWIGH').min()
+
+    # Next create standard deviation maps for both the seasonal and yearly NDWI and NDVI values.
+    std_ndvi = landsat.get_yearly_band_std(
+        col_monthly,
+        ['NDVI'],
+        begin,
+        end,
+        aoi,
+        season=season
+    )
+
+    std_ndwi = landsat.get_yearly_band_std(
+        col_monthly,
+        ['NDWI'],
+        begin,
+        end,
+        aoi,
+        season=season
+    )
+
+    std_gcvi = landsat.get_yearly_band_std(
+        col_monthly,
+        ['GCVI'],
+        begin,
+        end,
+        aoi,
+        season=season
+    )
+
+    std_wgi = landsat.get_yearly_band_std(
+        col_monthly,
+        ['WGI'],
+        begin,
+        end,
+        aoi,
+        season=season
+    )
+
+    ndvi_std_mean = std_ndvi.select('NDVI_std').mean()
+    ndwi_std_mean = std_ndwi.select('NDWI_std').mean()
+    gcvi_std_mean = std_gcvi.select('GCVI_std').mean()
+    wgi_std_mean = std_wgi.select('WGI_std').mean()
+
+    feature_bands = [
+        col_mean_monthly_median_blue,
+        col_mean_monthly_median_green,
+        col_mean_monthly_median_red,
+        col_mean_monthly_median_nir,
+        col_mean_monthly_median_swir_1,
+        col_mean_monthly_median_swir_2,
+        col_min_monthly_median_gcvi.rename('GCVI_min'),
+        col_mean_monthly_median_gcvi.rename('GCVI_median'),
+        col_max_monthly_median_gcvi.rename('GCVI_max'),
+        col_min_monthly_median_ndvi.rename('NDVI_min'),
+        col_mean_monthly_median_ndvi.rename('NDVI_median'),
+        col_max_monthly_median_ndvi.rename('NDVI_max'),
+        col_min_monthly_median_ndwi.rename('NDWI_min'),
+        col_mean_monthly_median_ndwi.rename('NDWI_median'),
+        col_max_monthly_median_ndwi.rename('NDWI_max'),
+        # col_mean_monthly_median_ndwi2.rename('NDWI2_min'),
+        # col_max_monthly_median_ndwi2.rename('NDWI2_median'),
+        # col_min_monthly_median_ndwi2.rename('NDWI2_max'),
+        col_min_monthly_median_wgi.rename('WGI_min'),
+        col_mean_monthly_median_wgi.rename('WGI_median'),
+        col_max_monthly_median_wgi.rename('WGI_max'),
+        col_min_monthly_median_ndwi_greenhouses.rename('NDWIGH_min'),
+        col_mean_monthly_median_ndwi_greenhouses.rename('NDWIGH_median'),
+        col_max_monthly_median_ndwi_greenhouses.rename('NDWIGH_max'),
+        col_min_monthly_median_ndbi.rename('NDBI_min'),
+        col_mean_monthly_mean_ndbi.rename('NDBI_median'),
+        col_max_monthly_median_ndbi.rename('NDBI_max'),
+        # col_min_monthly_median_savi.rename('SAVI_min'),
+        # col_mean_monthly_median_savi.rename('SAVI_median'),
+        # col_max_monthly_median_savi.rename('SAVI_max'),
+        ndvi_std_mean.rename('NDVI_std'),
+        gcvi_std_mean.rename('GCVI_std'),
+        ndwi_std_mean.rename('NDWI_std'),
+        wgi_std_mean.rename('WGI_std'),
+        twi.rename('TWI'),
+        slope
+    ]
+
+    # if collection == 'landsat':
+    #     col_mean_monthly_median_thermal = col_monthly_season.select('THERMAL').mean().rename('thermal')
+    #     feature_bands += [col_mean_monthly_median_thermal]
+
+    crop_data_min_mean_max = ee.ImageCollection(feature_bands).toBands()
+
+    try:
+        task = export_to_asset(
+            crop_data_min_mean_max,
+            'image',
+            f"data/{aoi_name}/{collection}/crop_data_{season}_{aoi_name}_{year_string}",
+            aoi_coordinates,
+            scale=scale
         )
-
-        winter_std_ndwi = landsat.get_yearly_band_std(
-            ls_monthly_ndwi,
-            ['median'],
-            begin,
-            end,
-            aoi,
-            season='winter'
-        )
-
-        winter_std_gcvi = landsat.get_yearly_band_std(
-            ls_monthly_gcvi,
-            ['median'],
-            begin,
-            end,
-            aoi,
-            season='winter'
-        )
-
-        winter_std_wgi = landsat.get_yearly_band_std(
-            ls_monthly_wgi,
-            ['median'],
-            begin,
-            end,
-            aoi,
-            season='winter'
-        )
-
-        winter_ndvi_std_mean = winter_std_ndvi.select('median_std').mean()
-        winter_ndwi_std_mean = winter_std_ndwi.select('median_std').mean()
-        winter_gcvi_std_mean = winter_std_gcvi.select('median_std').mean()
-        winter_wgi_std_mean = winter_std_wgi.select('median_std').mean()
-
-        crop_data_min_mean_max = ee.ImageCollection([
-            ls_mean_monthly_median_blue_winter,
-            ls_mean_monthly_median_green_winter,
-            ls_mean_monthly_median_red_winter,
-            ls_mean_monthly_median_thermal_winter,
-            ls_mean_monthly_median_swir_2_winter,
-            ls_mean_monthly_min_gcvi_winter.rename('min_GCVI'),
-            ls_mean_monthly_median_gcvi_winter.rename('median_GCVI'),
-            ls_mean_monthly_max_gcvi_winter.rename('max_GCVI'),
-            ls_mean_monthly_min_ndvi_winter.rename('min_NDVI'),
-            ls_mean_monthly_median_ndvi_winter.rename('median_NDVI'),
-            ls_mean_monthly_max_ndvi_winter.rename('max_NDVI'),
-            ls_mean_monthly_min_ndwi_winter.rename('min_NDWI'),
-            ls_mean_monthly_median_ndwi_winter.rename('median_NDWI'),
-            ls_mean_monthly_max_ndwi_winter.rename('max_NDWI'),
-            ls_mean_monthly_min_wgi_winter.rename('min_WGI'),
-            ls_mean_monthly_median_wgi_winter.rename('median_WGI'),
-            ls_mean_monthly_max_wgi_winter.rename('max_WGI'),
-            ls_mean_monthly_min_ndwi_greenhouses_winter.rename('min_NDWIGH'),
-            ls_mean_monthly_median_ndwi_greenhouses_winter.rename('median_NDWIGH'),
-            ls_mean_monthly_max_ndwi_greenhouses_winter.rename('max_NDWIGH'),
-            ls_mean_monthly_mean_ndbi_winter.rename('median_NDBI'),
-            ls_mean_monthly_max_ndbi_winter.rename('max_NDBI'),
-            ls_mean_monthly_min_ndbi_winter.rename('min_NDBI'),
-            winter_ndvi_std_mean.rename('NDVI_std'),
-            winter_gcvi_std_mean.rename('GCVI_std'),
-            winter_ndwi_std_mean.rename('NDWI_std'),
-            winter_wgi_std_mean.rename('WGI_std'),
-            twi.rename('TWI'),
-            slope
-        ]).toBands()
-
-        try:
-            task = export_to_asset(
-                crop_data_min_mean_max,
-                'image',
-                f"crop_data/{aoi_name}/crop_data_winter_min_median_max_{aoi_name}_{year_string}",
-                aoi_coordinates,
-                user_path=user_path
-            )
-        except FileExistsError as e:
-            print(e)
-            return True
-        else:
-            return task
+    except FileExistsError as e:
+        print(e)
+        return True
+    else:
+        return task
 
 
-def create_training_areas(aoi, data_image, aoi_name, year_string, season=None, user_path=None, clf_folder=None):
+def create_training_areas(aoi, data_image, aoi_name, year_string, season=None, clf_folder=None, hb=False, vt=False, ft=False):
     """
     Creates a map containing the training areas for classification using thresholding.
 
@@ -545,24 +249,44 @@ def create_training_areas(aoi, data_image, aoi_name, year_string, season=None, u
     else:
         loc = f"training_areas/{aoi_name}/{clf_folder}/training_areas_{season}_{aoi_name}_{year_string}"
 
+    habitats = ee.FeatureCollection('WCMC/WDPA/current/polygons') \
+        .filterBounds(aoi) \
+        .filter(ee.Filter.eq('DESIG_ENG', 'Site of Community Importance (Habitats Directive)'))
+    habitats_mask = ee.Image(1).paint(habitats, 0)
+
     aoi_coordinates = aoi.geometry().bounds().getInfo()['coordinates']
     if season == 'summer':
 
         mask_potential_crops = data_image.select('slope').lte(5).And(
-            data_image.select('median_NDVI').gt(.2))
+            data_image.select('NDVI_median').gt(.2))
 
-        mask_irrigated_crops = data_image.select('slope').lte(4).And(
-            data_image.select('median_WGI').gte(.04)).And(
-            data_image.select('WGI_std').gte(.25)).And(
-            data_image.select('median_NDWIGH').lt(-.28)
-        )
+        if vt:
+            mask_irrigated_crops = data_image.select('slope').lte(4).And(
+                data_image.select('WGI_median').gte(.04)).And(
+                data_image.select('WGI_std').gte(.25)).And(
+                data_image.select('NDWIGH_median').lt(-.28)).And(
+                data_image.select('NDWIGH_median').gt(-.45)).And(
+                data_image.select('NDWIGH_min').gt(-.5))
 
-        mask_irrigated_trees = data_image.select('slope').lte(4).And(
-            data_image.select('min_WGI').gt(-.05)).And(
-            data_image.select('min_NDBI').lt(-.1)).And(
-            data_image.select('NDWI_std').lt(.1)).And(
-            data_image.select('median_NDWIGH').lt(-.3)).And(
-            data_image.select('median_NDWIGH').gt(-.4))
+            mask_irrigated_trees = data_image.select('slope').lte(4).And(
+                data_image.select('WGI_min').gt(-.05)).And(
+                data_image.select('NDBI_min').lt(-.1)).And(
+                data_image.select('NDWI_std').lt(.1)).And(
+                data_image.select('NDWIGH_median').lt(-.3)).And(
+                data_image.select('NDWIGH_median').gt(-.4))
+        else:
+            mask_irrigated_crops = data_image.select('slope').lte(4).And(
+                data_image.select('WGI_median').gte(.04)).And(
+                data_image.select('WGI_std').gte(.25))
+
+            mask_irrigated_trees = data_image.select('slope').lte(4).And(
+                data_image.select('WGI_min').gt(-.05)).And(
+                data_image.select('NDBI_min').lt(-.1)).And(
+                data_image.select('NDWI_std').lt(.1))
+
+        if hb:
+            mask_irrigated_crops = mask_irrigated_crops.updateMask(habitats_mask)
+            mask_irrigated_trees = mask_irrigated_trees.updateMask(habitats_mask)
 
         blue_threshold = ee.Number(data_image.select('blue').reduceRegion(
             reducer=ee.Reducer.percentile([97]),
@@ -573,43 +297,58 @@ def create_training_areas(aoi, data_image, aoi_name, year_string, season=None, u
         ).get('blue'))
 
         mask_greenhouses = data_image.select('slope').lte(5).And(
-            data_image.select('median_NDWIGH').gt(-.22)).And(
-            data_image.select('median_NDWIGH').lt(-.06)).And(
+            data_image.select('NDWIGH_median').gt(-.22)).And(
+            data_image.select('NDWIGH_median').lt(-.06)).And(
             data_image.select('blue').gte(blue_threshold)).And(
-            data_image.select('median_NDWI').gt(.04)
+            data_image.select('NDWI_median').gt(.04)
         )
 
         # mask_rainfed_trees = data_image.select('slope').lte(5).And(
         #     data_image.select('swir').gt(2500)).And(
         #     data_image.select('NDWI_std').lt(.1)).And(
-        #     data_image.select('min_WGI').lt(-.05)).And(
+        #     data_image.select('WGI_min').lt(-.05)).And(
         #     data_image.select('WGI_std').lt(.3))
         #
         # mask_rainfed_crops = data_image.select('slope').lte(5).And(
         #     data_image.select('swir').gt(3000)).And(
         #     data_image.select('NDWI_std').gt(.1)).And(
-        #     data_image.select('min_WGI').lt(-.05)).And(
+        #     data_image.select('WGI_min').lt(-.05)).And(
         #     data_image.select('WGI_std').lt(.3))
 
         mask_rainfed_trees_crops = data_image.select('slope').lte(4).And(
-            data_image.select('WGI_std').gte(0)).And(
-            data_image.select('WGI_std').lte(.12)).And(
-            data_image.select('min_WGI').lt(-.1)).And(
-            data_image.select('NDWI_std').lt(.05))
+            data_image.select('NDBI_min').gte(0)).And(
+            data_image.select('NDBI_min').lte(0.1)).And(
+            data_image.select('WGI_std').gte(.1)).And(
+            data_image.select('WGI_std').lte(.4)).And(
+            data_image.select('WGI_min').lt(-.05)).And(
+            data_image.select('NDWI_std').lt(.15))
 
         mask_natural_trees = data_image.select('slope').gt(5).And(
-            data_image.select('min_NDVI').gt(.2))
+            data_image.select('NDVI_min').gt(.2))
 
         mask_scrubs = data_image.select('slope').gt(5).And(
             data_image.select('NDWI_std').gte(.05)).And(
             data_image.select('NDWI_std').lte(.18)).And(
-            data_image.select('median_WGI').gte(-.1)).And(
-            data_image.select('median_WGI').lte(0)
+            data_image.select('WGI_median').gte(-.1)).And(
+            data_image.select('WGI_median').lte(0)
         )
 
-        mask_water = data_image.select('median_NDWIGH').gt(.4)
+        mask_water = data_image.select('NDWIGH_median').gt(.4)
+
+        mask_urban = data_image.select('slope').lte(4).And(
+                data_image.select('NDWIGH_min').gt(-.4)).And(
+                data_image.select('NDWIGH_min').lt(-.25)).And(
+                data_image.select('swir2').gt(2000)).And(
+                data_image.select('swir2').lt(3500)).And(
+                data_image.select('NDBI_median').gt(0)).And(
+                data_image.select('NDBI_median').lt(.2)).And(
+                data_image.select('WGI_std').lt(.25))
+
+        landCover = ee.Image('COPERNICUS/CORINE/V20/100m/2018').select('landcover')
+        mask_urban = mask_urban.updateMask(landCover.eq(111))
 
         training_regions_image = ee.Image(0).where(
+            mask_urban.eq(1), 8).where(
             mask_scrubs.eq(1), 2).where(
             mask_natural_trees.eq(1), 1).where(
             mask_rainfed_trees_crops.eq(1), 3).where(
@@ -617,6 +356,12 @@ def create_training_areas(aoi, data_image, aoi_name, year_string, season=None, u
             mask_irrigated_crops.eq(1), 5).where(
             mask_irrigated_trees.eq(1), 6).where(
             mask_water.eq(1), 7).clip(aoi).rename('training')
+
+        if ft:
+            training_regions_mask = training_regions_image.connectedPixelCount(25) \
+                .reproject(data_image.projection()).gte(25)
+
+            training_regions_image = training_regions_image.where(training_regions_mask.eq(0), 0)
 
         training_regions_image = training_regions_image.addBands(
             mask_potential_crops.rename('classification_area'))
@@ -626,8 +371,7 @@ def create_training_areas(aoi, data_image, aoi_name, year_string, season=None, u
                 training_regions_image,
                 'image',
                 loc,
-                aoi_coordinates,
-                user_path=user_path
+                aoi_coordinates
             )
         except FileExistsError as e:
             print(e)
@@ -638,17 +382,23 @@ def create_training_areas(aoi, data_image, aoi_name, year_string, season=None, u
     elif season == 'winter':
 
         mask_potential_crops = data_image.select('slope').lte(5).And(
-            data_image.select('max_NDVI').gte(.28))
+            data_image.select('NDVI_max').gte(.28))
 
         mask_irrigated_crops = data_image.select('slope').lte(4).And(
-            data_image.select('median_WGI').gte(.29)).And(
+            data_image.select('WGI_median').gte(.29)).And(
             data_image.select('NDVI_std').gte(.1)).And(
-            data_image.select('median_NDWIGH').lt(-.28)
+            data_image.select('NDWIGH_median').lt(-.28)
         )
 
         mask_irrigated_trees = data_image.select('slope').lte(4).And(
-            data_image.select('min_WGI').gt(0)).And(
-            data_image.select('median_NDWIGH').lt(-.28))
+            data_image.select('WGI_min').gt(.1)).And(
+            data_image.select('NDWIGH_median').lt(-.28)).And(
+            data_image.select('swir2').gt(900)
+        )
+
+        if hb:
+            mask_irrigated_crops = mask_irrigated_crops.updateMask(habitats_mask)
+            mask_irrigated_trees = mask_irrigated_trees.updateMask(habitats_mask)
 
         blue_threshold = ee.Number(data_image.select('blue').reduceRegion(
             reducer=ee.Reducer.percentile([97]),
@@ -659,39 +409,53 @@ def create_training_areas(aoi, data_image, aoi_name, year_string, season=None, u
         ).get('blue'))
 
         mask_greenhouses = data_image.select('slope').lte(5).And(
-            data_image.select('median_NDWIGH').gt(-.2)).And(
-            data_image.select('median_NDWIGH').lt(.1)).And(
+            data_image.select('NDWIGH_median').gt(-.2)).And(
+            data_image.select('NDWIGH_median').lt(.1)).And(
             data_image.select('blue').gte(blue_threshold)).And(
-            data_image.select('median_NDWI').gt(.04)).And(
-            data_image.select('thermal').gt(2860))
+            data_image.select('NDWI_median').gt(.04))
 
         mask_rainfed_trees_and_crops = data_image.select('slope').lte(4).And(
             data_image.select('WGI_std').gte(0)).And(
             data_image.select('WGI_std').lte(.18)).And(
-            data_image.select('min_WGI').lt(-.1)).And(
+            data_image.select('WGI_min').lt(-.1)).And(
             data_image.select('NDWI_std').lt(.07))
 
         mask_natural_trees = data_image.select('slope').gt(5).And(
-            data_image.select('min_NDVI').gt(.2)
+            data_image.select('NDVI_min').gt(.2)
         )
 
         mask_scrubs = data_image.select('slope').gt(5).And(
             data_image.select('NDWI_std').gte(0)).And(
             data_image.select('NDWI_std').lte(.08)).And(
-            data_image.select('median_WGI').gte(-.1)).And(
-            data_image.select('median_WGI').lte(0.05)
+            data_image.select('WGI_median').gte(-.1)).And(
+            data_image.select('WGI_median').lte(0.05)
         )
 
-        mask_water = data_image.select('median_NDWIGH').gt(.4)
+        mask_water = data_image.select('NDWIGH_median').gt(.4)
+
+        mask_urban = data_image.select('NDWIGH_min').gt(-.4).And(
+            data_image.select('NDWIGH_min').lt(-.25)).And(
+            data_image.select('swir2').gt(1500)).And(
+            data_image.select('NDBI_median').gt(0))
+
+        landCover = ee.Image('COPERNICUS/CORINE/V20/100m/2018').select('landcover')
+        mask_urban = mask_urban.updateMask(landCover.eq(111))
 
         training_regions_image = ee.Image(0).where(
+            mask_urban.eq(1), 8).where(
             mask_scrubs.eq(1), 2).where(
             mask_natural_trees.eq(1), 1).where(
             mask_rainfed_trees_and_crops, 3).where(
             mask_greenhouses.eq(1), 4).where(
             mask_irrigated_crops.eq(1), 5).where(
             mask_irrigated_trees.eq(1), 6).where(
-            mask_water.gt(.4), 7).clip(aoi).rename('training')
+            mask_water.eq(1), 7).clip(aoi).rename('training')
+
+        if ft:
+            training_regions_mask = training_regions_image.updateMask(training_regions_image.gt(0)) \
+                .connectedPixelCount(25).reproject(data_image.projection()).gte(25)
+
+            training_regions_image = training_regions_image.where(training_regions_mask.eq(0), 0)
 
         training_regions_image = training_regions_image.addBands(
             mask_potential_crops.rename('classification_area'))
@@ -701,8 +465,7 @@ def create_training_areas(aoi, data_image, aoi_name, year_string, season=None, u
                 training_regions_image,
                 'image',
                 loc,
-                aoi_coordinates,
-                user_path=user_path
+                aoi_coordinates
             )
         except FileExistsError as e:
             print(e)
@@ -711,8 +474,43 @@ def create_training_areas(aoi, data_image, aoi_name, year_string, season=None, u
             return task
 
 
-def classify_irrigated_areas(training_image, training_areas, aoi, data_info, aoi_name=None, year=None, user_path=None,
-                             clf_folder=None, clf='random_forest', no_trees=500, bag_fraction=.5, vps=2):
+def remove_outliers(sample, bandnames, classes):
+    filtered_sample = None
+
+    for cl in classes:
+        class_sample = sample.filter(ee.Filter.eq('training', cl))
+        mean = class_sample.reduceColumns(
+            reducer=ee.Reducer.mean().repeat(bandnames.size()),
+            selectors=bandnames
+        ).get('mean')
+
+        std = class_sample.reduceColumns(
+            reducer=ee.Reducer.stdDev().repeat(bandnames.size()),
+            selectors=bandnames
+        ).get('stdDev')
+
+        def calc_z_score(x):
+            return ee.Array(x).subtract(ee.Array(mean)).divide(ee.Array(std))
+
+        def add_z_score(feat):
+            properties = ee.Feature(feat).toArray(bandnames)
+            z = calc_z_score(properties)
+            outlier = z.gte(3).Or(z.lte(-3)).toList().contains(1)
+            return feat.set('outlier', outlier).set('z_scores', z)
+
+        class_sample = class_sample.map(add_z_score)
+        if filtered_sample is None:
+            filtered_sample = class_sample
+        else:
+            filtered_sample = filtered_sample.merge(class_sample)
+
+    return filtered_sample.filter(ee.Filter.eq('outlier', False)).filter(
+        ee.Filter.notNull(bandnames))
+
+
+def classify_irrigated_areas(training_image, training_areas, aoi, data_info, aoi_name=None, year=None,
+                             clf_folder=None, min_tp=1000, max_tp=60000, tile_scale=16,
+                             clf='random_forest', no_trees=500, bag_fraction=.5, vps=2, ro=False):
     """
     Performs a classification using pixels within the class regions obtained via thresholding as training data.
     Classification is performed on the GEE servers and results are exported to Google Drive connected to the GEE
@@ -736,84 +534,151 @@ def classify_irrigated_areas(training_image, training_areas, aoi, data_info, aoi
 
     class_property = 'training'
     aoi_coordinates = aoi.geometry().bounds().getInfo()['coordinates']
+
+    class_values = [1, 2, 3, 4, 5, 6, 7, 8]
+    min_training_pixels = ee.Array([min_tp, min_tp, min_tp, min_tp, min_tp, min_tp, min_tp, min_tp])
+    max_training_pixels = ee.Array([max_tp, max_tp, max_tp, max_tp, max_tp, max_tp, max_tp, max_tp])
+
+    class_count = ee.List(training_areas.updateMask(training_areas.select('training').gt(0)).reduceRegion(
+        reducer=ee.Reducer.count().group(
+            groupField=0,
+            groupName='class',
+        ),
+        geometry=aoi,
+        scale=30,
+        maxPixels=1e13
+    ).get('groups'))
+
+    class_points = class_count.map(get_fraction_training_pixels)
+
+    # total_pixels = training_areas.select('training').updateMask(training_areas.select('training').gt(0)).reduceRegion(
+    #     reducer=ee.Reducer.count(),
+    #     geometry=aoi,
+    #     scale=30,
+    #     maxPixels=1e13
+    # ).get('training')
+
+    # max_pixels = ee.Number(26214400).divide(ee.Number(training_image.bandNames().length())).multiply(.95).toInt()
+    # max_pixels_per_class = ee.Array(class_count.map(get_count)).divide(total_pixels).multiply(max_pixels).toInt()
+
+    class_points = ee.Array(class_points).min(max_training_pixels)
+    class_points = ee.Array(class_points).max(min_training_pixels)
+
+    bands = training_image.bandNames()
     training_image = training_image.addBands(training_areas)
 
     training_multiclass = training_image.updateMask(training_image.select('training').gt(0)) \
         .stratifiedSample(
         numPoints=1000,
-        classBand='training',
+        classBand=class_property,
         scale=30,
-        region=aoi.geometry()
+        classValues=ee.List(class_values),
+        classPoints=class_points.toList(),
+        region=aoi.geometry(),
+        tileScale=tile_scale
     )
+
+    if ro:
+        training_multiclass = remove_outliers(training_multiclass, training_image.bandNames(), class_values)
 
     if clf == 'random_forest':
         # Train classifier for the multiclass classification
         classifier_multiclass = ee.Classifier.smileRandomForest(
             no_trees,
             variablesPerSplit=vps,
-            bagFraction=bag_fraction
+            bagFraction=bag_fraction,
+            minLeafPopulation=10,
+        ).train(
+            training_multiclass,
+            class_property,
+            bands
+        )
+
+        # ee.batch.Export.table.toDrive(
+        #     collection=ee.FeatureCollection(ee.Feature(None, classifier_multiclass.confusionMatrix())),
+        #     description=f'confusion_matrix_tf_hb_vt_slope',
+        #     fileFormat='CSV'
+        # ).start()
+
+        # region_tiles = vector.split_region(ee.FeatureCollection(f'{GEE_USER_PATH}/vector/{vector_collection["potential_crops"]}'))
+        # for tile in region_tiles:
+
+    if clf == 'cart':
+        # Train classifier for the multiclass classification
+        classifier_multiclass = ee.Classifier.smileCart(
+            minLeafPopulation=10,
+        ).train(
+            training_multiclass,
+            class_property,
+            training_image.bandNames()
+        )
+
+    if clf == 'bayes':
+        # Train classifier for the multiclass classification
+        classifier_multiclass = ee.Classifier.smileNaiveBayes(
         ).train(
             training_multiclass,
             class_property
         )
 
-        # region_tiles = vector.split_region(ee.FeatureCollection(f'{GEE_USER_PATH}/vector/{vector_collection["potential_crops"]}'))
-        # for tile in region_tiles:
+    # Get mask of areas were forest loss has occurred in the period.
+    forest_change = ee.Image("UMD/hansen/global_forest_change_2018_v1_6").select('lossyear').clip(aoi)
 
-        # Get mask of areas were forest loss has occurred in the period.
-        forest_change = ee.Image("UMD/hansen/global_forest_change_2018_v1_6").select('lossyear').clip(aoi)
+    if int(year[-2:]) in range(1, 19):
+        forest_change_mask = forest_change.eq(ee.Number(int(year[-2:])))
+        # Classify the unknown area based on the crop data using the multiclass classifiers
+        irrigated_area_classified_multiclass = training_image \
+            .classify(classifier_multiclass) \
+            .where(forest_change_mask.eq(1), 10) \
+            .toByte()
+    else:
+        # Classify the unknown area based on the crop data using the multiclass classifiers
+        irrigated_area_classified_multiclass = training_image \
+            .classify(classifier_multiclass) \
+            .toByte()
 
-        if int(year) in range(1, 19):
-            forest_change_mask = forest_change.eq(ee.Number(int(year)))
-            # Classify the unknown area based on the crop data using the multiclass classifiers
-            irrigated_area_classified_multiclass = training_image \
-                .classify(classifier_multiclass) \
-                .where(forest_change_mask.eq(1), 10) \
-                .toByte()
-        else:
-            # Classify the unknown area based on the crop data using the multiclass classifiers
-            irrigated_area_classified_multiclass = training_image \
-                .classify(classifier_multiclass) \
-                .toByte()
+    irrigated_areas = ee.Image(0).toByte() \
+        .where(irrigated_area_classified_multiclass.select('classification').eq(5), 1) \
+        .where(irrigated_area_classified_multiclass.select('classification').eq(6), 2)
 
-        irrigated_area_multiclass = ee.Image(0).toByte() \
-            .where(irrigated_area_classified_multiclass.select('classification').eq(5), 1) \
-            .where(irrigated_area_classified_multiclass.select('classification').eq(6), 2)
+    mask_small_patches_removed = irrigated_areas.updateMask(irrigated_areas.gt(0)) \
+        .connectedPixelCount(4).reproject(training_image.projection()).gte(4)
 
-        irrigated_results = ee.ImageCollection([
-            irrigated_area_multiclass.rename('irrigated_area'),
-            irrigated_area_classified_multiclass.rename('rf_all_classes'),
-            training_image.select('training'),
-        ]).toBands().regexpRename('([0-9]{1,3}_)', '')
+    irrigated_areas = irrigated_areas.where(mask_small_patches_removed.eq(0), 0)
 
-        # export_task_ext = ee.batch.Export.image.toDrive(
-        #     image=irrigated_results,
-        #     description=f'ia_{clf}_{data_info}_{no_trees}tr_{vps}vps_{int(bag_fraction * 100)}bf_{aoi_name}_{year}',
-        #     folder=f'{clf}_{aoi_name}_{year}',
-        #     scale=30,
-        #     region=aoi_coordinates,
-        #     maxPixels=1e13,
-        # )
-        # export_task_ext.start()
+    irrigated_results = ee.ImageCollection([
+        irrigated_areas.rename('irrigated_area'),
+        irrigated_area_classified_multiclass.rename('rf_all_classes'),
+        training_image.select('training'),
+    ]).toBands().regexpRename('([0-9]{1,3}_)', '')
 
-        try:
+    # export_task_ext = ee.batch.Export.image.toDrive(
+    #     image=irrigated_results,
+    #     description=f'ia_{clf}_{data_info}_{no_trees}tr_{vps}vps_{int(bag_fraction * 100)}bf_{aoi_name}_{year}',
+    #     folder=f'{clf}_{aoi_name}_{year}',
+    #     scale=30,
+    #     region=aoi_coordinates,
+    #     maxPixels=1e13,
+    # )
+    # export_task_ext.start()
 
-            task = export_to_asset(
-                irrigated_results,
-                'image',
-                loc,
-                aoi_coordinates,
-                user_path=user_path,
-            )
-        except FileExistsError as e:
-            print(e)
-            return True
-        else:
-            return task
+    try:
+
+        task = export_to_asset(
+            irrigated_results,
+            'image',
+            loc,
+            aoi_coordinates
+        )
+    except FileExistsError as e:
+        print(e)
+        return True
+    else:
+        return task
 
 
 def join_seasonal_irrigated_areas(irrigated_area_summer, irrigated_area_winter, aoi_name, year, aoi_coordinates,
-                                  export_method='drive', user_path=None, clf_folder=None):
+                                  export_method='drive', clf_folder=None, info=''):
     if clf_folder is None:
         loc = f"results/irrigated_area/{aoi_name}/irrigated_areas_{aoi_name}_{year}"
     else:
@@ -843,7 +708,7 @@ def join_seasonal_irrigated_areas(irrigated_area_summer, irrigated_area_winter, 
     if export_method == 'drive':
         export_task_ext = ee.batch.Export.image.toDrive(
             image=results,
-            description=f'ia_{year}',
+            description=f'ia_{info}{year}',
             folder=loc.replace('/', '_'),
             scale=30,
             region=aoi_coordinates,
@@ -856,8 +721,7 @@ def join_seasonal_irrigated_areas(irrigated_area_summer, irrigated_area_winter, 
                 results,
                 'image',
                 loc,
-                aoi_coordinates,
-                user_path=user_path
+                aoi_coordinates
             )
         except FileExistsError as e:
             print(e)

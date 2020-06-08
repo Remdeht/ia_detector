@@ -1,4 +1,5 @@
 import folium
+import jinja2
 from branca.element import Template, MacroElement
 
 
@@ -15,15 +16,28 @@ def create_folium_map(images, name=None, coords=[20, 0], zoom=6, height='100%'):
     folium_map = folium.Map(location=coords, zoom_start=zoom, height=height, control_scale=True)
 
     if images is None:
+
         folium.TileLayer(
-            tiles='https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+            tiles='http://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
             attr='Google',
-            name='Google Maps',
+            name='Google Sat',
             overlay=True,
-            control=True
+            control=True,
+            subdomains= ['mt0', 'mt1', 'mt2', 'mt3'],
+            max_zoom=20
         ).add_to(folium_map)
 
     else:
+        folium.TileLayer(
+            tiles='http://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+            attr='Google',
+            name='Google Sat',
+            overlay=True,
+            control=True,
+            subdomains=['mt0', 'mt1', 'mt2', 'mt3'],
+            max_zoom=20
+        ).add_to(folium_map)
+
         for key in images:
             folium.TileLayer(
                 tiles=images[key]['tile_fetcher'].url_format,
@@ -65,7 +79,7 @@ def vis_params_cp(band, min_val, max_val, palette=None, opacity=1):
     return params
 
 
-def vis_params_rgb_ls457(bands= [], minVal=0, maxVal=3000, gamma=1.4):
+def vis_params_rgb_ls457(bands=['R', 'G', 'B'], minVal=0, maxVal=3000, gamma=1.4):
     """
     Return the visual parameters for RGB maps
 
@@ -115,9 +129,9 @@ def vis_rf_classification(band=['rf_all_classes']):
             "FAFA05",
             "6464FE",
             "64C3FF",
-            "darkblue",
-            "FFFFFF",
-            "FFFFFF",
+            "00008b",
+            "AA0F6E",
+            "F5A555",
             "000000",
         ],
     }
