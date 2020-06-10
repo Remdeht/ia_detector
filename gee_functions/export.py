@@ -113,23 +113,52 @@ def track_task(task):
         return True
 
     starttime = time.time()  # set the starttime, to track the runtime of the task
-    while True:
-        mins_running = round((time.time() - starttime) / 60)  # calculates the # of minutes the task is running
-        try:
-            status = task.status()  # get the task status
-        except (ConnectionResetError, urllib3.exceptions.ProtocolError):  # in case the connection fails
-            time.sleep(30)
-            status = task.status()
-        if status['state'] == 'COMPLETED':  # if the task is completed
-            print(f'\rTask Completed, runtime: {mins_running} minutes')
-            return True
-        elif status['state'] == 'CANCELLED':
-            raise RuntimeError(f'Export task canceled')
-        elif status['state'] == 'FAILED':  # if the task has failed
-            if 'Cannot overwrite asset' in status['error_message']:  # in case the asset already exists
-                print('\rAsset Already Exists')
+
+    if type(task) == dict:
+        while True:
+            mins_running = round((time.time() - starttime) / 60)  # calculates the # of minutes the task is running
+            for t in task:
+                if task[t] == True:
+                    continue
+                try:
+                    status = task[t].status()  # get the task status
+                except (ConnectionResetError, urllib3.exceptions.ProtocolError):  # in case the connection fails
+                    time.sleep(30)
+                    status = task[t].status()
+                if status['state'] == 'COMPLETED':  # if the task is completed
+                    print(f'\rTask Completed, runtime: {mins_running} minutes')
+                    task[t] = True
+                elif status['state'] == 'CANCELLED':
+                    raise RuntimeError(f'Export task {t} canceled')
+                elif status['state'] == 'FAILED':  # if the task has failed
+                    if 'Cannot overwrite asset' in status['error_message']:  # in case the asset already exists
+                        print('\rAsset Already Exists')
+                        return True
+                    raise RuntimeError(f'Export task failed: {status["error_message"]}')
+            if all(value == True for value in task.values()):
+                print('All tasks completed!')
                 return True
-            raise RuntimeError(f'Export task failed: {status["error_message"]}')
-        print(f'\rRunning Task ({mins_running} min)')
-        time.sleep(60.0 - ((time.time() - starttime) % 60.0))  # pause the loop for 60 seconds
+            else:
+                print(f'\rRunning tasks: ({mins_running} min)')
+                time.sleep(60.0 - ((time.time() - starttime) % 60.0))  # pause the loop for 60 seconds
+    else:
+        while True:
+            mins_running = round((time.time() - starttime) / 60)  # calculates the # of minutes the task is running
+            try:
+                status = task.status()  # get the task status
+            except (ConnectionResetError, urllib3.exceptions.ProtocolError):  # in case the connection fails
+                time.sleep(30)
+                status = task.status()
+            if status['state'] == 'COMPLETED':  # if the task is completed
+                print(f'\rTask Completed, runtime: {mins_running} minutes')
+                return True
+            elif status['state'] == 'CANCELLED':
+                raise RuntimeError(f'Export task canceled')
+            elif status['state'] == 'FAILED':  # if the task has failed
+                if 'Cannot overwrite asset' in status['error_message']:  # in case the asset already exists
+                    print('\rAsset Already Exists')
+                    return True
+                raise RuntimeError(f'Export task failed: {status["error_message"]}')
+            print(f'\rRunning task: ({mins_running} min)')
+            time.sleep(60.0 - ((time.time() - starttime) % 60.0))  # pause the loop for 60 seconds
 
