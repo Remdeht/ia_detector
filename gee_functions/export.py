@@ -126,7 +126,7 @@ def track_task(task):
                     time.sleep(30)
                     status = task[t].status()
                 if status['state'] == 'COMPLETED':  # if the task is completed
-                    print(f'\rTask Completed, runtime: {mins_running} minutes')
+                    print(f'\rTask "{t}" Completed, runtime: {mins_running} minutes')
                     task[t] = True
                 elif status['state'] == 'CANCELLED':
                     raise RuntimeError(f'Export task {t} canceled')
