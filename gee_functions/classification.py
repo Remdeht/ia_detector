@@ -20,7 +20,7 @@ def get_count(obj):
     return ee.Number(ee.Dictionary(obj).get('count'))
 
 
-def create_features(year, aoi, aoi_name, year_string, season='year', collection='Landsat'):
+def create_features(year, aoi, aoi_name, year_string, season='year', collection='Landsat', gap_fill=False):
     """
     Exports the features need for classification to the GEE as assets. The assets will later be loaded in
     during classification.
@@ -56,7 +56,8 @@ def create_features(year, aoi, aoi_name, year_string, season='year', collection=
         start_date=begin,
         end_date=end,
         aoi=aoi,
-        stats=['median']
+        stats=['median'],
+        gap_fill_flag=gap_fill
     )
 
     col_monthly = col_monthly.select(
@@ -87,40 +88,42 @@ def create_features(year, aoi, aoi_name, year_string, season='year', collection=
         late_filter = ee.Filter.rangeContains('month', 10, 12)
         col_monthly_season = col_monthly.filter(ee.Filter.Or(early_filter, late_filter))
 
-    col_mean_monthly_median_blue = col_monthly_season.select('B').mean().rename('blue')
-    col_mean_monthly_median_green = col_monthly_season.select('G').mean().rename('green')
-    col_mean_monthly_median_red = col_monthly_season.select('R').mean().rename('red')
-    col_mean_monthly_median_nir = col_monthly_season.select('NIR').mean().rename('nir')
-    col_mean_monthly_median_swir_1 = col_monthly_season.select('SWIR').mean().rename('swir1')
-    col_mean_monthly_median_swir_2 = col_monthly_season.select('SWIR2').mean().rename('swir2')
+    # TODO - check if it is possible to improve the RGB
+
+    col_mean_monthly_median_blue = col_monthly_season.select('B').median().rename('blue')
+    col_mean_monthly_median_green = col_monthly_season.select('G').median().rename('green')
+    col_mean_monthly_median_red = col_monthly_season.select('R').median().rename('red')
+    col_mean_monthly_median_nir = col_monthly_season.select('NIR').median().rename('nir')
+    col_mean_monthly_median_swir_1 = col_monthly_season.select('SWIR').median().rename('swir1')
+    col_mean_monthly_median_swir_2 = col_monthly_season.select('SWIR2').median().rename('swir2')
 
     col_mean_monthly_median_ndvi = col_monthly_season.select('NDVI').mean()
     col_max_monthly_median_ndvi = col_monthly_season.select('NDVI').max()
-    col_min_monthly_median_ndvi = col_monthly_season.select('NDVI').reduce(ee.Reducer.percentile([20]))
+    col_min_monthly_median_ndvi = col_monthly_season.select('NDVI').reduce(ee.Reducer.percentile([10]))
 
     col_mean_monthly_median_gcvi = col_monthly_season.select('GCVI').mean()
     col_max_monthly_median_gcvi = col_monthly_season.select('GCVI').max()
-    col_min_monthly_median_gcvi = col_monthly_season.select('GCVI').reduce(ee.Reducer.percentile([20]))
+    col_min_monthly_median_gcvi = col_monthly_season.select('GCVI').reduce(ee.Reducer.percentile([10]))
 
     col_mean_monthly_median_ndwi = col_monthly_season.select('NDWI').mean()
     col_max_monthly_median_ndwi = col_monthly_season.select('NDWI').max()
-    col_min_monthly_median_ndwi = col_monthly_season.select('NDWI').reduce(ee.Reducer.percentile([20]))
+    col_min_monthly_median_ndwi = col_monthly_season.select('NDWI').reduce(ee.Reducer.percentile([10]))
 
     col_mean_monthly_median_ndwi2 = col_monthly_season.select('NDWI2').mean()
     col_max_monthly_median_ndwi2 = col_monthly_season.select('NDWI2').max()
-    col_min_monthly_median_ndwi2 = col_monthly_season.select('NDWI2').reduce(ee.Reducer.percentile([20]))
+    col_min_monthly_median_ndwi2 = col_monthly_season.select('NDWI2').reduce(ee.Reducer.percentile([10]))
 
     col_mean_monthly_median_wgi = col_monthly_season.select('WGI').mean()
     col_max_monthly_median_wgi = col_monthly_season.select('WGI').max()
-    col_min_monthly_median_wgi = col_monthly_season.select('WGI').reduce(ee.Reducer.percentile([20]))
+    col_min_monthly_median_wgi = col_monthly_season.select('WGI').reduce(ee.Reducer.percentile([10]))
 
     col_mean_monthly_median_savi = col_monthly_season.select('SAVI').mean()
     col_max_monthly_median_savi = col_monthly_season.select('SAVI').max()
-    col_min_monthly_median_savi = col_monthly_season.select('SAVI').reduce(ee.Reducer.percentile([20]))
+    col_min_monthly_median_savi = col_monthly_season.select('SAVI').reduce(ee.Reducer.percentile([10]))
 
     col_mean_monthly_mean_ndbi = col_monthly_season.select('NDBI').mean()
     col_max_monthly_median_ndbi = col_monthly_season.select('NDBI').max()
-    col_min_monthly_median_ndbi = col_monthly_season.select('NDBI').reduce(ee.Reducer.percentile([20]))
+    col_min_monthly_median_ndbi = col_monthly_season.select('NDBI').reduce(ee.Reducer.percentile([10]))
 
     col_mean_monthly_median_ndwi_greenhouses = col_monthly_season.select('NDWIGH').mean()
     col_max_monthly_median_ndwi_greenhouses = col_monthly_season.select('NDWIGH').max()
@@ -262,7 +265,7 @@ def create_training_areas(aoi, data_image, aoi_name, year_string, season=None, c
 
         if vt:
             mask_irrigated_crops = data_image.select('slope').lte(4).And(
-                data_image.select('WGI_median').gte(.04)).And(
+                data_image.select('WGI_min').lt(0)).And(
                 data_image.select('WGI_std').gte(.25)).And(
                 data_image.select('NDWIGH_median').lt(-.28)).And(
                 data_image.select('NDWIGH_median').gt(-.45)).And(
@@ -271,7 +274,7 @@ def create_training_areas(aoi, data_image, aoi_name, year_string, season=None, c
             mask_irrigated_trees = data_image.select('slope').lte(4).And(
                 data_image.select('WGI_min').gt(-.05)).And(
                 data_image.select('NDBI_min').lt(-.1)).And(
-                data_image.select('NDWI_std').lt(.1)).And(
+                data_image.select('NDWI_std').lte(.1)).And(
                 data_image.select('NDWIGH_median').lt(-.3)).And(
                 data_image.select('NDWIGH_median').gt(-.4))
         else:
@@ -288,18 +291,18 @@ def create_training_areas(aoi, data_image, aoi_name, year_string, season=None, c
             mask_irrigated_crops = mask_irrigated_crops.updateMask(habitats_mask)
             mask_irrigated_trees = mask_irrigated_trees.updateMask(habitats_mask)
 
-        blue_threshold = ee.Number(data_image.select('blue').reduceRegion(
-            reducer=ee.Reducer.percentile([97]),
-            geometry=aoi,
-            scale=30,
-            tileScale=4,
-            maxPixels=1e13
-        ).get('blue'))
+        # blue_threshold = ee.Number(data_image.select('blue').reduceRegion(
+        #     reducer=ee.Reducer.percentile([97]),
+        #     geometry=aoi,
+        #     scale=30,
+        #     tileScale=4,
+        #     maxPixels=1e13
+        # ).get('blue'))
 
         mask_greenhouses = data_image.select('slope').lte(5).And(
             data_image.select('NDWIGH_median').gt(-.22)).And(
             data_image.select('NDWIGH_median').lt(-.06)).And(
-            data_image.select('blue').gte(blue_threshold)).And(
+            data_image.select('blue').gte(2000)).And(
             data_image.select('NDWI_median').gt(.04)
         )
 
@@ -315,6 +318,10 @@ def create_training_areas(aoi, data_image, aoi_name, year_string, season=None, c
         #     data_image.select('WGI_min').lt(-.05)).And(
         #     data_image.select('WGI_std').lt(.3))
 
+        mask_natural_trees = data_image.select('slope').gt(8).And(
+            data_image.select('NDVI_min').gt(.2)).And(
+            data_image.select('WGI_min').lt(0.1))
+
         mask_rainfed_trees_crops = data_image.select('slope').lte(4).And(
             data_image.select('NDBI_min').gte(0)).And(
             data_image.select('NDBI_min').lte(0.1)).And(
@@ -322,9 +329,6 @@ def create_training_areas(aoi, data_image, aoi_name, year_string, season=None, c
             data_image.select('WGI_std').lte(.4)).And(
             data_image.select('WGI_min').lt(-.05)).And(
             data_image.select('NDWI_std').lt(.15))
-
-        mask_natural_trees = data_image.select('slope').gt(5).And(
-            data_image.select('NDVI_min').gt(.2))
 
         mask_scrubs = data_image.select('slope').gt(5).And(
             data_image.select('NDWI_std').gte(.05)).And(
@@ -385,8 +389,8 @@ def create_training_areas(aoi, data_image, aoi_name, year_string, season=None, c
             data_image.select('NDVI_max').gte(.28))
 
         mask_irrigated_crops = data_image.select('slope').lte(4).And(
-            data_image.select('WGI_median').gte(.29)).And(
-            data_image.select('NDVI_std').gte(.1)).And(
+            data_image.select('WGI_median').gte(.2)).And(
+            data_image.select('WGI_std').gte(.2)).And(
             data_image.select('NDWIGH_median').lt(-.28)
         )
 
@@ -415,14 +419,16 @@ def create_training_areas(aoi, data_image, aoi_name, year_string, season=None, c
             data_image.select('NDWI_median').gt(.04))
 
         mask_rainfed_trees_and_crops = data_image.select('slope').lte(4).And(
+            data_image.select('NDBI_min').gte(-.35)).And(
+            data_image.select('NDBI_min').lte(0.05)).And(
             data_image.select('WGI_std').gte(0)).And(
-            data_image.select('WGI_std').lte(.18)).And(
-            data_image.select('WGI_min').lt(-.1)).And(
+            data_image.select('WGI_std').lte(.2)).And(
+            data_image.select('WGI_min').lt(-.05)).And(
+            data_image.select('WGI_min').gte(-.13)).And(
             data_image.select('NDWI_std').lt(.07))
 
         mask_natural_trees = data_image.select('slope').gt(5).And(
-            data_image.select('NDVI_min').gt(.2)
-        )
+            data_image.select('NDVI_min').gt(.2))
 
         mask_scrubs = data_image.select('slope').gt(5).And(
             data_image.select('NDWI_std').gte(0)).And(
@@ -510,7 +516,7 @@ def remove_outliers(sample, bandnames, classes):
 
 def classify_irrigated_areas(training_image, training_areas, aoi, data_info, aoi_name=None, year=None,
                              clf_folder=None, min_tp=1000, max_tp=60000, tile_scale=16,
-                             clf='random_forest', no_trees=500, bag_fraction=.5, vps=2, ro=False):
+                             clf='random_forest', no_trees=500, bag_fraction=.5, vps=2, ro=False, season='', val=None):
     """
     Performs a classification using pixels within the class regions obtained via thresholding as training data.
     Classification is performed on the GEE servers and results are exported to Google Drive connected to the GEE
@@ -528,9 +534,9 @@ def classify_irrigated_areas(training_image, training_areas, aoi, data_info, aoi
     """
 
     if clf_folder is None:
-        loc = f"results/random_forest/{aoi_name}/ia_{clf}_{data_info}_{no_trees}tr_{vps}vps_{int(bag_fraction * 100)}bf_{aoi_name}_{year}"
+        loc = f"results/random_forest/{aoi_name}/ia_{clf}_{data_info.replace('_std', '')}_{no_trees}tr_{vps}vps_{int(bag_fraction * 100)}bf_{aoi_name}_{year}"
     else:
-        loc = f"results/random_forest/{aoi_name}/{clf_folder}/ia_{clf}_{data_info}_{no_trees}tr_{vps}vps_{int(bag_fraction * 100)}bf_{aoi_name}_{year}"
+        loc = f"results/random_forest/{aoi_name}/{clf_folder}/ia_{clf}_{data_info.replace('_std', '')}_{no_trees}tr_{vps}vps_{int(bag_fraction * 100)}bf_{aoi_name}_{year}"
 
     class_property = 'training'
     aoi_coordinates = aoi.geometry().bounds().getInfo()['coordinates']
@@ -564,6 +570,9 @@ def classify_irrigated_areas(training_image, training_areas, aoi, data_info, aoi
     class_points = ee.Array(class_points).min(max_training_pixels)
     class_points = ee.Array(class_points).max(min_training_pixels)
 
+    # print(f'{season}_{year}')
+    # print(class_points.getInfo())
+
     bands = training_image.bandNames()
     training_image = training_image.addBands(training_areas)
 
@@ -578,7 +587,7 @@ def classify_irrigated_areas(training_image, training_areas, aoi, data_info, aoi
         tileScale=tile_scale
     )
 
-    if ro:
+    if ro is True:
         training_multiclass = remove_outliers(training_multiclass, training_image.bandNames(), class_values)
 
     if clf == 'random_forest':
@@ -594,11 +603,24 @@ def classify_irrigated_areas(training_image, training_areas, aoi, data_info, aoi
             bands
         )
 
-        # ee.batch.Export.table.toDrive(
-        #     collection=ee.FeatureCollection(ee.Feature(None, classifier_multiclass.confusionMatrix())),
-        #     description=f'confusion_matrix_tf_hb_vt_slope',
-        #     fileFormat='CSV'
-        # ).start()
+        if val is not None:
+            cm = classifier_multiclass.confusionMatrix()
+
+            dic_cm = ee.Feature(None, ee.Dictionary(
+                {
+                    'matrix':cm.array(),
+                    'acc':cm.accuracy(),
+                    'cons_acc':cm.consumersAccuracy(),
+                    'prod_acc':cm.producersAccuracy(),
+                    'kappa':cm.kappa(),
+                }
+            ))
+
+            ee.batch.Export.table.toDrive(
+                collection=ee.FeatureCollection(dic_cm),
+                description=f'cm_{year}_{aoi_name}_{season}',
+                fileFormat='CSV'
+            ).start()
 
         # region_tiles = vector.split_region(ee.FeatureCollection(f'{GEE_USER_PATH}/vector/{vector_collection["potential_crops"]}'))
         # for tile in region_tiles:
@@ -645,6 +667,18 @@ def classify_irrigated_areas(training_image, training_areas, aoi, data_info, aoi
         .connectedPixelCount(4).reproject(training_image.projection()).gte(4)
 
     irrigated_areas = irrigated_areas.where(mask_small_patches_removed.eq(0), 0)
+
+    non_ia_connected_pixels = irrigated_areas.gt(0).where(mask_small_patches_removed.eq(0), 0).Not()\
+        .connectedPixelCount(8).reproject(training_image.projection()).lte(5)
+
+    mean_ia = irrigated_areas.updateMask(irrigated_areas.gt(0)).focal_mean(
+        kernelType= 'square',
+        radius= 2.5).reproject(training_image.projection())
+
+    mean_ia_assigned = mean_ia.where(mean_ia.gte(1.5), 2).where(mean_ia.lt(1.5).And(mean_ia.gt(0)), 1)\
+        .updateMask(non_ia_connected_pixels)
+
+    irrigated_areas = irrigated_areas.where(mean_ia_assigned.eq(2), 2).where(mean_ia_assigned.eq(1), 1)
 
     irrigated_results = ee.ImageCollection([
         irrigated_areas.rename('irrigated_area'),

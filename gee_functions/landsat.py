@@ -3,6 +3,8 @@ from monthdelta import monthdelta
 from datetime import timedelta, datetime
 from dateutil.relativedelta import relativedelta
 import folium
+
+from .export import export_to_asset
 from .gap_fill import gap_fill
 import pandas as pd
 
@@ -394,7 +396,7 @@ def create_monthly_index_images(image_collection, band, start_date, end_date, ao
 
 
 
-def create_monthly_index_images_v2(image_collection, start_date, end_date, aoi, stats=['mean'], bimonthly=False):
+def create_monthly_index_images_v2(image_collection, start_date, end_date, aoi, stats=['mean'], gap_fill_flag=False):
     """
     Generate monthly images for a aoi
     :param image_collection: EE imagecollection of NDVI images to be used for the calculation of monthly median NDVI
@@ -482,7 +484,15 @@ def create_monthly_index_images_v2(image_collection, start_date, end_date, aoi, 
                                   .set('system:time_start', ee.Date(start_month).millis())
                                   )
 
-                monthly_median = monthly_median.unmask(filler_data.median(), True).clip(aoi)
+                if monthly_median.bandNames().size().getInfo() == 0:
+                    print(f'No data available for: {datetime.strftime(start_month, "%b")} {start_month.year}')
+                    continue
+
+                if gap_fill_flag:
+                    monthly_median = gap_fill(monthly_median, filler_data.median(), 17, False).clip(
+                        aoi)
+                else:
+                    monthly_median = monthly_median.unmask(filler_data.median(), True).clip(aoi)
 
                 monthly_stats += [monthly_median]
 

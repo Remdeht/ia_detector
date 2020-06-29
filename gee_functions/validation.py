@@ -82,7 +82,7 @@ def calc_validation_score(mask, validation_polygons, mask_name='irrigated_area',
     if export is True:
         export_task = ee.batch.Export.table.toDrive(
             collection=validation_polygons_scored,
-            description=f'validation_ic_polygons',
+            description=f'validation_polygons',
             folder=f'accuracy_polygons_kml',
             fileFormat='KML'
         )
@@ -90,7 +90,7 @@ def calc_validation_score(mask, validation_polygons, mask_name='irrigated_area',
 
         export_task = ee.batch.Export.table.toDrive(
             collection=result,
-            description=f'validation_ic_score',
+            description=f'validation_score',
             folder=f'accuracy_scores',
             fileFormat='CSV'
         )
