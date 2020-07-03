@@ -41,7 +41,8 @@ def add_area(ft):
     return ft.set('area', ft.area(1))
 
 
-def calc_validation_score(mask, validation_polygons, mask_name='irrigated_area', export=False):
+def calc_validation_score(mask, validation_polygons, mask_name='irrigated_area', export=False, export_polygons=False,
+                          name=None):
     """Calculates the validation score for a mask layer using validation polygons that were uploaded as assets to GEE
     beforehand"""
 
@@ -80,17 +81,23 @@ def calc_validation_score(mask, validation_polygons, mask_name='irrigated_area',
     result = ee.FeatureCollection(ee.Feature(None, validation_score))
 
     if export is True:
-        export_task = ee.batch.Export.table.toDrive(
-            collection=validation_polygons_scored,
-            description=f'validation_polygons',
-            folder=f'accuracy_polygons_kml',
-            fileFormat='KML'
-        )
-        export_task.start()
+        if export_polygons is True:
+            export_task = ee.batch.Export.table.toDrive(
+                collection=validation_polygons_scored,
+                description=f'validation_polygons',
+                folder=f'accuracy_polygons_kml',
+                fileFormat='KML'
+            )
+            export_task.start()
+
+        if name is None:
+            description = 'validation_score'
+        else:
+            description=f'validation_score_{name}'
 
         export_task = ee.batch.Export.table.toDrive(
             collection=result,
-            description=f'validation_score',
+            description=description,
             folder=f'accuracy_scores',
             fileFormat='CSV'
         )
