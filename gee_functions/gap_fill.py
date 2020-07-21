@@ -1,3 +1,10 @@
+"""
+Applies the USGS L7 Phase-2 Gap filling protocol, using a single kernel size.
+Based on the GEE code found on the GEE forums. See this GEE code editor for original code:
+https://code.earthengine.google.com/263d5d0fec9a198307c7661739801382
+Original gap fill algorithm was proposed in 'SLC gap-filled products phase one methodology' by Scarammuza et al. (2004)
+"""
+
 import ee
 
 MIN_SCALE = 1/3
@@ -5,8 +12,15 @@ MAX_SCALE = 3
 MIN_NEIGHBORS = 144
 
 
-#  Apply the USGS L7 Phase-2 Gap filling protocol, using a single kernel size.
-def gap_fill(src, fill, kernel_size, upscale):
+def gap_fill(src, fill, kernel_size, upscale=False):
+    """
+    Gap filling
+    :param src: scene to be filled
+    :param fill: scene to use for the fillin
+    :param kernel_size: size of the kernel in meters
+    :param upscale: indicates whether to upscale the computation to coarser resolution for faster computation time
+    :return: filled image
+    """
     kernel = ee.Kernel.square(kernel_size * 30, "meters", False)
 
     # Find the pixels common to both scenes.

@@ -1,9 +1,10 @@
-import ee
+"""
+All the functions for calculating vegetation indices based on satellite imagery
+"""
 
-# spectral indices
 def add_ndvi(image):
     """
-    Calculates the Normalized Difference Vegetation Index(NDVI) for Landsat 4,5 & 7 Scenes
+    Calculates the Normalized Difference Vegetation Index (NDVI)
     """
     ndvi = image.normalizedDifference(['NIR', 'R']).rename('NDVI');
     return image.addBands(ndvi)
@@ -11,38 +12,29 @@ def add_ndvi(image):
 
 def add_ndwi(image):
     """
-    Calculates the Normalized Difference Water Index(NDWI) for Landsat 4,5 & 7 Scenes
+    Calculates the Normalized Difference Water Content Index (NDWI) as proposed by Gao (1996)
     """
     ndvi = image.normalizedDifference(['NIR', 'SWIR']).rename('NDWI');
     return image.addBands(ndvi)
 
-
-def add_ndwi_swir_2(image):
-    """
-    Calculates the Normalized Difference Water Index(NDWI) for Landsat 4,5 & 7 Scenes
-    """
-    ndvi = image.normalizedDifference(['NIR', 'SWIR2']).rename('NDWI2');
-    return image.addBands(ndvi)
-
-
 def add_ndwi_mcfeeters(image):
-    ndwi = image.normalizedDifference(['G', 'SWIR']).rename('NDWIGH')
+    """
+    Calculates the Normalized Difference Water Index (NDWI) as proposed by McFeeters (1996)
+    """
+    ndwi = image.normalizedDifference(['G', 'SWIR']).rename('NDWBI')
     return image.addBands(ndwi)
 
 
 def add_ndbi(image):
+    """
+    Calculates the Normalized Difference Built-up Index (NDBI) as proposed by McFeeters (1996)
+    """
     ndbi = image.normalizedDifference(['SWIR', 'NIR']).rename('NDBI')
     return image.addBands(ndbi)
 
-
-def add_bu(image):
-    bu = image.select('NDBI').subtract(image.select('NDVI')).rename('BU')
-    return image.addBands(bu)
-
-
 def add_evi(image):
     """
-    Calculates the Enhanced Vegetation Index(EVI) for Landsat 4,5 & 7 Scenes
+    Calculates the Enhanced Vegetation Index (EVI)
     """
     evi = image.expression(
         '2.5 * ((NIR-RED) / (NIR + (6 * RED) - (7.5* BLUE) + 1))', {
@@ -56,7 +48,7 @@ def add_evi(image):
 
 def add_savi(image):
     """
-    Calculates the Soil Adjusted Vegetation Index(SAVI) for Landsat 4,5 & 7 Scenes
+    Calculates the Soil Adjusted Vegetation Index (SAVI)
     """
     savi = image.expression(
         '((1 + 0.5) * (NIR-RED) / (NIR + RED + 0.5))', {
@@ -69,7 +61,7 @@ def add_savi(image):
 
 def add_gi(image):
     """
-    Calculates the Greenness Index(GI) for Landsat 4,5 & 7 Scenes
+    Calculates the Greenness Index (GI)
     """
     gi = image.expression(
         'NIR / G', {
@@ -83,7 +75,7 @@ def add_gi(image):
 
 def add_gcvi(image):
     """
-    Calculates the Green Chlorophyll Vegetation Index (GCVI) for Landsat 4,5 & 7 Imagery
+    Calculates the Green Chlorophyll Vegetation Index (GCVI)
     """
     gcvi = image.expression(
         '(NIR/G) - 1', {
@@ -96,6 +88,9 @@ def add_gcvi(image):
 
 
 def add_wgi(image):
+    """
+    Calculates the Water Adjusted Green Index (WGI)
+    """
     wgi = image.expression(
         'NDWI * GI', {
             'NDWI': image.select('NDWI'),

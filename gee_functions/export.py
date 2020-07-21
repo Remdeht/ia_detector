@@ -1,3 +1,7 @@
+"""
+Functions related to exporting EE assets as well as the tracking of export tasks
+"""
+
 import ee
 import re
 import time
@@ -16,7 +20,9 @@ def export_to_asset(asset, asset_type, asset_id, region, scale=30):
     :return task: Returns a GEE export task
     """
 
-    user_path = ee.data.getAssetRoots()[0]['id'] + "/ia_classification"
+    # TODO - try to add a overwrite method
+
+    user_path = GEE_USER_PATH + "/ia_classification"
 
     if not asset_type in ['vector', 'image']:  # in case unknwown asset type is specified
         raise ValueError('unknown asset type, please use vector or image')
@@ -79,6 +85,17 @@ def export_to_asset(asset, asset_type, asset_id, region, scale=30):
 
 
 def export_to_drive(asset, asset_type, asset_name, region, folder, crs='EPSG:4326'):
+    """
+    Exports a EE FeatureCollection of Image to user's drive account
+
+    :param asset: EE Image or FeatureCollection
+    :param asset_type: String specifying if the asset is a vector ('vector') or ('image').
+    :param asset_name: filename for the asset to be saved under on the Google drive
+    :param region: geometry of the extent to be exported when exporting an image
+    :param folder: Google Drive folder name to save the asset in
+    :param crs: projection for the asset
+    :return: EE export task
+    """
 
     if asset_type == 'image':
         export_task = ee.batch.Export.image.toDrive(
@@ -108,13 +125,17 @@ def export_to_drive(asset, asset_type, asset_name, region, folder, crs='EPSG:432
 
 
 def track_task(task):
-    """ Function for the tracking of a GEE export task"""
+    """
+    Function for the tracking of a EE export task
+
+    :param task: Either a single EE task or a dictionary with tasknames as keys and EE tasks as values.
+    """
     if task == True:  # in case an asset already exists a new task is not started. Instead the existing asset is used.
         return True
 
     starttime = time.time()  # set the starttime, to track the runtime of the task
 
-    if type(task) == dict:
+    if type(task) == dict:  # If a dictionary is used for input all the tasks in the dic will be tracked
         while True:
             mins_running = round((time.time() - starttime) / 60)  # calculates the # of minutes the task is running
             for t in task:
@@ -141,7 +162,7 @@ def track_task(task):
             else:
                 print(f'\rRunning tasks: ({mins_running} min)')
                 time.sleep(60.0 - ((time.time() - starttime) % 60.0))  # pause the loop for 60 seconds
-    else:
+    else:  # single ee task is used
         while True:
             mins_running = round((time.time() - starttime) / 60)  # calculates the # of minutes the task is running
             try:

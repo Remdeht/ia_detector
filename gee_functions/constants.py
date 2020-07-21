@@ -1,6 +1,8 @@
+"""
+Contains constants used throughout the entire package
+"""
 import ee
-
-# File containing some constant personal values used in the package.
 ee.Initialize()
 
-GEE_USER_PATH = ee.data.getAssetRoots()[0]['id']
+
+GEE_USER_PATH = ee.data.getAssetRoots()[0]['id']  # Retrieves the user's GEE path to be used for saving assets

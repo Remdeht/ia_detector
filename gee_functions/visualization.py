@@ -1,22 +1,26 @@
+"""
+Functions for visualizing EE layers
+"""
+
 import folium
-import jinja2
 from branca.element import Template, MacroElement
 
 
-def create_folium_map(images, name=None, coords=[20, 0], zoom=6, height='100%'):
+def create_folium_map(images=None, name=None, coords=[20, 0], zoom=6, height='100%'):
     """
-    Creates a html file containing a folium map containing specified EE image
+    Creates a html file containing a folium map visualizing EE image
 
-    :param images: Dictionary of EE map IDs (obtained via method .getMapId()) to add to folium map
-    :param name: name of the final html file, if None the map is not saved
+    :param images: dict. w/ name as key and EE map IDs (via method .getMapId()) as value
+    :param name: name of the final html file, if 'None' the folium map is not saved
     :param coords: coordinates for the center of the folium map
-    :param zoom:starting zoom level for the folium map
+    :param zoom: starting zoom level for the folium map
     :param height: starting height for the folium map
     """
-    folium_map = folium.Map(location=coords, zoom_start=zoom, height=height, control_scale=True)
 
+    folium_map = folium.Map(location=coords, zoom_start=zoom, height=height, control_scale=True)  # create a folium map
+
+    # If no dictionary with EE Image id's have been provided an folium map with Google satellite basemap is returned
     if images is None:
-
         folium.TileLayer(
             tiles='http://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
             attr='Google',
@@ -28,6 +32,7 @@ def create_folium_map(images, name=None, coords=[20, 0], zoom=6, height='100%'):
         ).add_to(folium_map)
 
     else:
+        # first add the Google satellite basemap
         folium.TileLayer(
             tiles='http://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
             attr='Google',
@@ -38,7 +43,7 @@ def create_folium_map(images, name=None, coords=[20, 0], zoom=6, height='100%'):
             max_zoom=20
         ).add_to(folium_map)
 
-        for key in images:
+        for key in images:  # loop through the dict. and add all map id's as layer
             folium.TileLayer(
                 tiles=images[key]['tile_fetcher'].url_format,
                 attr='Map Data &copy; <a href="https://earthengine.google.com/">Google Earth Engine</a>',
@@ -46,28 +51,26 @@ def create_folium_map(images, name=None, coords=[20, 0], zoom=6, height='100%'):
                 name=key,
             ).add_to(folium_map)
 
+    folium_map.add_child(folium.LayerControl())  # add layer control
 
-    folium_map.add_child(folium.LayerControl())
-
-    if name is not None:
+    if name is not None:  # if a name is specified the map is saved as an HTML file
         folium_map.save(f'{name}.html')
 
     return folium_map
 
 
-# Generate visual parameters for visualization
 def vis_params_cp(band, min_val, max_val, palette=None, opacity=1):
     """
     Returns a dictionary for the visual parameters for a single band color palette representation
 
-    :param band: Name of the band to visualize
-    :param min: minimum value for color range
-    :param max: maximum value for color range
+    :param band: name of the band to visualize
+    :param min_val: minimum value
+    :param max_val: maximum value
     :param palette: optional, color palette vor visualization. Default is red yellow green.
-    :return: Returns a dictionary containing parameters for visualization
+    :return: returns a dictionary containing parameters for visualization
     """
     if palette is None:
-        palette = ["red", "orange", "yellow", "green", "darkgreen"]
+        palette = ["red", "orange", "yellow", "green", "darkgreen"]  # default colot palette
 
     params = {
         'bands': band,
@@ -79,25 +82,33 @@ def vis_params_cp(band, min_val, max_val, palette=None, opacity=1):
     return params
 
 
-def vis_params_rgb_ls457(bands=['R', 'G', 'B'], minVal=0, maxVal=3000, gamma=1.4):
+def vis_params_rgb(bands=['R', 'G', 'B'], minVal=0, maxVal=3000, gamma=1.4, opacity=None):
     """
-    Return the visual parameters for RGB maps
-
-    :param minVal: Min Value
-    :param maxVal: Max Value
-    :param gamma: Gamma Value
-    :return: Dictionary containing the parameters for visualization
+    Returns visual parameters for a RGB visualization
+    :param bands: list of RGB bandnames, defaults to ['R', 'G', 'B']
+    :param minVal: value to map to RGB value 0, defaults to 0
+    :param maxVal: value to map to RGB8 value 255, defaults to 3000
+    :param gamma: gamma value, defaults to 1.4
+    :param opacity: opacity value, defaults to None
+    :return: dictionary containing the parameters for visualization
     """
     params = {
         'bands': bands,
         'min': minVal,
         'max': maxVal,
         'gamma': gamma,
+        'opacity': opacity
     }
     return params
 
 
 def vis_irrigated_area_map(band=['ia_year']):
+    """
+    Returns dictionary containing visual parameters for the visualization of the irrigated area overview map
+
+    :param band: list with the bandname of the overview map with irrigated areas, default name is 'ia_year'
+    :return: dictionary containing visual parameters for the visualization of the irrigated area overview map
+    """
     params = {
         'bands': band,
         'min': 0,
@@ -117,6 +128,13 @@ def vis_irrigated_area_map(band=['ia_year']):
 
 
 def vis_rf_classification(band=['rf_all_classes']):
+    """
+    Returns dictionary containing visual parameters for the visualization of land cover maps obtained from random forest
+    classification
+
+    :param band: list with the bandname of the lc map, default name is 'rf_all_classes'
+    :return: dictionary containing visual parameters for the visualization of the irrigated area overview map
+    """
     params = {
         'bands': band,
         'min': 0,
@@ -138,21 +156,12 @@ def vis_rf_classification(band=['rf_all_classes']):
     return params
 
 
-def vis_params_ndvi():
+def vis_params_ndvi(band=["NDVI"]):
     """
     Return the visual parameters for NDVI maps, representing the values with a red to green color palette
     """
     params = {
-        'bands': ["NDVI"],
-        'min': -1,
-        'max': 1,
-        'palette': ["red", "orange", "yellow", "green", "darkgreen"],
-    }
-    return params
-
-def vis_params_pr_ndvi():
-    params = {
-        'bands': ["NDVI_pr"],
+        'bands': band,
         'min': -1,
         'max': 1,
         'palette': ["red", "orange", "yellow", "green", "darkgreen"],
@@ -161,7 +170,16 @@ def vis_params_pr_ndvi():
 
 
 def create_categorical_legend(map, palette, classnames):
+    """
+    Function to create and add a categorical legend to a folium map.
+
+    :param map: folium map to which the legend will be added
+    :param palette: list with color codes for each class
+    :param classnames: list with class names, matching the palette list
+    :return: folium map with categorical legend
+    """
     categories = ""
+    # creates class category label to add to legend
     for ind, cl in enumerate(classnames):
         categories += f"<li><span style='background:#{palette[ind]};opacity:0.85;'></span>{classnames[cl]}</li>"
 
@@ -255,11 +273,11 @@ def create_categorical_legend(map, palette, classnames):
     </style>
     {% endmacro %}"""
 
-    template = template_head + styling + end
+    template = template_head + styling + end  # Combine all the parts into a single templace docstring
     macro = MacroElement()
-    macro._template = Template(template)
+    macro._template = Template(template)  # create an element
 
-    return map.get_root().add_child(macro)
+    return map.get_root().add_child(macro)  # add element to the map and return the map
 
 
 

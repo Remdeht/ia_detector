@@ -1,3 +1,6 @@
+"""
+Functions related to EE vectors
+"""
 import ee
 
 
@@ -6,14 +9,25 @@ def add_area(vector):
     Function to add area as a property to a GEE feature collection representing a polygon or multipolygon.
 
     :param vector: GEE feature collection representing a polygon or multipolygon feature.
-    :return: GEE feature collection of a polygon/multipolygon
+    :return: GEE feature collection of a polygon/multipolygon with an area property for each feature
     """
     area = vector.geometry().area(maxError=1)
     return vector.set('area', area)
 
 
 def raster_to_vector(image, region, scale=30, max_pixels=1e8, tile_scale=1):
-    """Wrapper for the ReduceToVector function that converts a raster object to a polygon"""
+    """
+    Wrapper for the EE ReduceToVector function that converts a raster object to a vector. Removes features belonging to
+    pixels with the value 0 by default.
+
+    :param image: EE Image to convert, the first band is expected to be an integer type; adjacent pixels will be
+     in the same segment if they have the same value in this band
+    :param region: the region over which to reduce data, defaults to the footprint of the image's first band
+    :param scale: a nominal scale in meters of the projection to work in
+    :param max_pixels: the maximum number of pixels to reduce
+    :param tile_scale: a scaling factor used to reduce aggregation tile size
+    :return: EE FeatureCollection of the first band of the input image
+    """
 
     vector = image.reduceToVectors(
         reducer=ee.Reducer.countEvery(),
@@ -27,13 +41,21 @@ def raster_to_vector(image, region, scale=30, max_pixels=1e8, tile_scale=1):
 
 
 def split_region(region):
-    bounding_box = region.geometry().bounds()
-    centroid = bounding_box.centroid(1)
+    """
+    Splits a EE FeatureCollection/Feature into four equal parts
+    :param region: EE FeatureCollection/Feature to split
+    :return: dictionary containing the four parts of FeatureCollection
+    """
+
+    bounding_box = region.geometry().bounds()  # gets the bounding box of the region
+    centroid = bounding_box.centroid(1)  # get the centroid
+    # select the four corner coordinates of the bounding box
     point_1 = ee.Geometry.Point(ee.List(bounding_box.coordinates().get(0)).get(0)).coordinates()
     point_2 = ee.Geometry.Point(ee.List(bounding_box.coordinates().get(0)).get(1)).coordinates()
     point_3 = ee.Geometry.Point(ee.List(bounding_box.coordinates().get(0)).get(2)).coordinates()
     point_4 = ee.Geometry.Point(ee.List(bounding_box.coordinates().get(0)).get(3)).coordinates()
 
+    # split the original bounding box into four equal bounding boxes
     new_poly_1 = ee.Geometry.Polygon(
         coords=[
             point_1,
@@ -82,6 +104,7 @@ def split_region(region):
         evenOdd=False,
     )
 
+    # clip the original region using the each part of the bounding box
     bottom_left_poly = new_poly_1.intersection(region, maxError=1)
     bottom_right_poly = new_poly_2.intersection(region, maxError=1)
     top_right_poly = new_poly_3.intersection(region, maxError=1)
