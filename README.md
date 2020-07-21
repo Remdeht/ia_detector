@@ -7,6 +7,9 @@ The code within this repository allows you to apply our methodology for the mapp
 
 ## Requirements
 A Google Earth Engine account is required to access the Google Earth Engine Python API. More information on how to sign up can be found *[here](https://earthengine.google.com/)*
+Additionaly, the monthdelta python package needs to be installed. This package can be installed via pip by running the following line:
+
+     pip install monthdelta
 
 ## Installation
 You can clone the repository by running the following line

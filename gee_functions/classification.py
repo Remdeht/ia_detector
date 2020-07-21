@@ -21,7 +21,7 @@ def get_count(obj):
     return ee.Number(ee.Dictionary(obj).get('count'))
 
 
-def create_features(year, aoi, aoi_name, sensor='Landsat'):
+def create_features(year, aoi, aoi_name='undefined', sensor='landsat'):
     """
     Creates and exports the feature data for classification to the GEE as two image assets (feature data for summer and
      winter).
@@ -166,10 +166,10 @@ def create_features(year, aoi, aoi_name, sensor='Landsat'):
 
         try:
             task = export_to_asset(  # Export to the GEE account of the user
-                crop_data_min_mean_max,
-                'image',
-                f"data/{aoi_name}/{sensor}/crop_data_{season}_{aoi_name}_{year_string}",
-                aoi_coordinates,
+                asset=crop_data_min_mean_max,
+                asset_type='image',
+                asset_id=f"data/{aoi_name}/{sensor}/crop_data_{season}_{aoi_name}_{year_string}",
+                region=aoi_coordinates,
                 scale=scale
             )
         except FileExistsError as e:  # if the asset already exists the user is notified and no error is generated
@@ -188,20 +188,14 @@ def create_training_areas(aoi, data_loc, aoi_name, year_string, clf_folder=None,
     Creates a map containing the training areas for classification using thresholding.
 
     :param aoi: GEE FeatureCollection containing a polygon of the area of interest
-    :param data_image: GEE Image containing the feature data from used to select the traning areas
     :param aoi_name: name of the area of interest
     :param year_string: year for which the traninig areas are selected
-    :param season: season for which the training areas are selected
-    :param user_path: GEE user path to which the training areas will be exported
     :param clf_folder: Optional folder for storing the training areas
     :return: GEE export task
     """
 
     #  Get the coordinates of the area of interest. Will be used for the exporting of results later
     aoi_coordinates = aoi.geometry().bounds().getInfo()['coordinates']
-
-    # if season not in ['summer', 'winter']:
-    #     raise ValueError('unknown season string, please enter either "winter" or "summer"')
 
     if hb:  # Creates a mask from WDPA - Habitats Directive for the masking of irrigated land area patches
         habitats = ee.FeatureCollection('WCMC/WDPA/current/polygons') \
@@ -519,11 +513,11 @@ def classify_irrigated_areas(input_features, training_areas, aoi, aoi_name, seas
     aoi_coordinates = aoi.geometry().bounds().getInfo()['coordinates']  # coordinates of the aoi, needed for export
 
     # select the land cover patches for all the land cover classes
-    training_areas = training_areas.select('training').updateMask(training_areas.select('training').gt(0))
+    training_areas_masked = training_areas.select('training').updateMask(training_areas.select('training').gt(0))
 
     # check the class values present in the training image, in case thresholding did not separate patches for a lc class
     # the RF classifier does not consider  it for trainning
-    freqHist = training_areas.reduceRegion(ee.Reducer.frequencyHistogram(), aoi, 30)
+    freqHist = training_areas_masked.reduceRegion(ee.Reducer.frequencyHistogram(), aoi, 30)
     class_values = ee.Dictionary(freqHist.get('training')).keys().getInfo()  # gets the unique class labels
     class_values = [int(x) for x in class_values]  # converts the strings to int
 
@@ -675,7 +669,7 @@ def join_seasonal_irrigated_areas(irrigated_area_summer, irrigated_area_winter, 
     combined_irrigated_area_map = ee.Image(0) \
         .where(combined_irrigated_area_map.eq(10), 1) \
         .where(combined_irrigated_area_map.eq(12), 2) \
-        .where(combined_irrigated_area_map.eq(2), 3) \
+        .where(combined_irrigated_area_map.eq(2), 3)\
         .where(combined_irrigated_area_map.eq(3), 4) \
         .where(combined_irrigated_area_map.eq(5), 5) \
         .where(combined_irrigated_area_map.eq(4), 6) \

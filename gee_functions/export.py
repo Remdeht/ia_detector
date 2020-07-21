@@ -97,6 +97,8 @@ def export_to_drive(asset, asset_type, asset_name, region, folder, crs='EPSG:432
     :return: EE export task
     """
 
+
+
     if asset_type == 'image':
         export_task = ee.batch.Export.image.toDrive(
             image=asset,
