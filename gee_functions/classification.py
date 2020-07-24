@@ -289,12 +289,26 @@ def create_training_areas(aoi, data_loc, aoi_name, year_string, clf_folder=None,
                 data_image.select('NDWBI_mean').gt(-.45)).And(
                 data_image.select('NDWBI_min').gt(-.5))
 
-            mask_irrigated_trees = data_image.select('slope').lte(4).And(
-                data_image.select('WGI_min').gt(-.06)).And(
-                data_image.select('NDBI_min').lt(0)).And(
-                data_image.select('NDWI_std').lte(.1)).And(
-                data_image.select('NDWBI_mean').lt(-.28)).And(
-                data_image.select('NDWBI_mean').gt(-.4))
+            mask_irrigated_trees = data_image.select('slope').lte(5).And(
+                data_image.select('WGI_max').gte(0.25)).And(
+                data_image.select('WGI_mean').gte(0.1)).And(
+                data_image.select('NDBI_min').lte(-0.1)).And(
+                data_image.select('NDWI_min').gte(0)).And(
+                data_image.select('GCVI_max').gte(1.5)).And(
+                data_image.select('GCVI_mean').gte(1.25)).And(
+                data_image.select('GCVI_min').gte(1)).And(
+                data_image.select('MTI').gte(3)).And(
+                data_image.select('NDBI_max').lte(0)).And(
+                data_image.select('NDBI_mean').lte(0)).And(
+                data_image.select('NDVI_max').gte(0.4)).And(
+                data_image.select('NDVI_mean').gte(0.3)).And(
+                data_image.select('NDVI_min').gte(0.25)).And(
+                data_image.select('WGI_min').gte(0)).And(
+                data_image.select('BLUE').gte(1000)).And(
+                data_image.select('GREEN').gte(1000)).And(
+                data_image.select('RED').gte(1500)).And(
+                data_image.select('NIR').gte(3000)).And(
+                data_image.select('SWIR1').gte(2500))
 
             if hb:
                 # Removes training patches of irrigated land areas from areas within Habitats Sites
@@ -442,15 +456,9 @@ def create_training_areas(aoi, data_loc, aoi_name, year_string, clf_folder=None,
             mask_urban = mask_urban.updateMask(corine_lc.eq(111))
 
         # Creates an image where pixels belonging to different patches are indicated with a class specific label
-        training_regions_image = ee.Image(0).where(
-            mask_scrubs.eq(1), 2).where(
-            mask_natural_trees.eq(1), 1).where(
-            mask_rainfed_trees_crops.eq(1), 3).where(
-            mask_greenhouses.eq(1), 4).where(
-            mask_irrigated_crops.eq(1), 5).where(
-            mask_irrigated_trees.eq(1), 6).where(
-            mask_water.eq(1), 7).where(
-            mask_urban.eq(1), 8).clip(aoi).rename('training')
+		# temporarily changed to show only IAs!
+        training_regions_image = ee.Image(0).where( # .where(mask_irrigated_crops.eq(1), 5)
+            mask_irrigated_trees.eq(1), 6).clip(aoi).rename('training')
 
         if ft:
             # filters the training patches based on the number of connected pixels. Only patches with 25 connected
