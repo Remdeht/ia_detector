@@ -304,11 +304,11 @@ def create_training_areas(aoi, data_loc, aoi_name, year_string, clf_folder=None,
                 data_image.select('NDVI_mean').gte(0.3)).And(
                 data_image.select('NDVI_min').gte(0.25)).And(
                 data_image.select('WGI_min').gte(0)).And(
-                data_image.select('BLUE').gte(1000)).And(
-                data_image.select('GREEN').gte(1000)).And(
-                data_image.select('RED').gte(1500)).And(
-                data_image.select('NIR').gte(3000)).And(
-                data_image.select('SWIR1').gte(2500))
+                data_image.select('blue').gte(1000)).And(
+                data_image.select('green').gte(1000)).And(
+                data_image.select('red').gte(1500)).And(
+                data_image.select('nir').gte(3000)).And(
+                data_image.select('swir1').gte(2500))
 
             if hb:
                 # Removes training patches of irrigated land areas from areas within Habitats Sites
