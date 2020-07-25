@@ -289,26 +289,26 @@ def create_training_areas(aoi, data_loc, aoi_name, year_string, clf_folder=None,
                 data_image.select('NDWBI_mean').gt(-.45)).And(
                 data_image.select('NDWBI_min').gt(-.5))
 
-            mask_irrigated_trees = data_image.select('slope').lte(5).And(
-                data_image.select('WGI_max').gte(0.25)).And(
-                data_image.select('WGI_mean').gte(0.1)).And(
-                data_image.select('NDBI_min').lte(-0.1)).And(
-                data_image.select('NDWI_min').gte(0)).And(
-                data_image.select('GCVI_max').gte(1.5)).And(
-                data_image.select('GCVI_mean').gte(1.25)).And(
-                data_image.select('GCVI_min').gte(1)).And(
-                data_image.select('MTI').gte(3)).And(
-                data_image.select('NDBI_max').lte(0)).And(
-                data_image.select('NDBI_mean').lte(0)).And(
-                data_image.select('NDVI_max').gte(0.4)).And(
-                data_image.select('NDVI_mean').gte(0.3)).And(
-                data_image.select('NDVI_min').gte(0.25)).And(
-                data_image.select('WGI_min').gte(0)).And(
-                data_image.select('blue').gte(1000)).And(
-                data_image.select('green').gte(1000)).And(
-                data_image.select('red').gte(1500)).And(
-                data_image.select('nir').gte(3000)).And(
-                data_image.select('swir1').gte(2500))
+            mask_irrigated_trees = 	#data_image.select('slope').lte(5).And(
+                #data_image.select('WGI_max').gte(0.25)).And(
+                #data_image.select('WGI_mean').gte(0.1)).And(
+                #data_image.select('NDBI_min').lte(-0.1)).And(
+                #data_image.select('NDWI_min').gte(0)).And(
+                #data_image.select('GCVI_max').gte(1.5)).And(
+                #data_image.select('GCVI_mean').gte(1.25)).And(
+                data_image.select('GCVI_min').gte(0.98)).And(
+                #data_image.select('MTI').gte(3)).And(
+                #data_image.select('NDBI_max').lte(0)).And(
+                #data_image.select('NDBI_mean').lte(0)).And(
+                #data_image.select('NDVI_max').gte(0.4)).And(
+                #data_image.select('NDVI_mean').gte(0.3)).And(
+                #data_image.select('NDVI_min').gte(0.25)).And(
+                #data_image.select('WGI_min').gte(0)).And(
+                #data_image.select('blue').gte(1000)).And(
+                #data_image.select('green').gte(1000)).And(
+                #data_image.select('red').gte(1500)).And(
+                data_image.select('nir').gt(2650))#.And(
+                #data_image.select('swir1').gte(2500))
 
             if hb:
                 # Removes training patches of irrigated land areas from areas within Habitats Sites
