@@ -289,7 +289,7 @@ def create_training_areas(aoi, data_loc, aoi_name, year_string, clf_folder=None,
                 data_image.select('NDWBI_mean').gt(-.45)).And(
                 data_image.select('NDWBI_min').gt(-.5))
 
-            mask_irrigated_trees = data_image.select('GCVI_min').gte(0.98)).And(	#data_image.select('slope').lte(5).And(
+            mask_irrigated_trees = data_image.select('GCVI_min').gte(0.98).And(	#data_image.select('slope').lte(5).And(
                 #data_image.select('WGI_max').gte(0.25)).And(
                 #data_image.select('WGI_mean').gte(0.1)).And(
                 #data_image.select('NDBI_min').lte(-0.1)).And(
