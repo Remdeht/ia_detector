@@ -283,16 +283,14 @@ def create_training_areas(aoi, data_loc, aoi_name, year_string, clf_folder=None,
             #         data_image.select('WGI_std').lt(.25))
 
             mask_irrigated_crops = data_image.select('slope').lte(4).And(
-                data_image.select('WGI_min').lt(-0.05)).And(
+                data_image.select('WGI_min').lt(0)).And(
                 data_image.select('WGI_std').gte(.05)).And(
                 data_image.select('NDWBI_mean').lt(-.28)).And(
                 data_image.select('NDWBI_mean').gt(-.45)).And(
                 data_image.select('NDWBI_min').gt(-.5))
 
             mask_irrigated_trees = data_image.select('slope').lte(4).And(
-                data_image.select('WGI_min').gt(-.06)).And(
-                data_image.select('NDBI_min').lt(0)).And(
-                data_image.select('NDWI_std').lte(.1)).And(
+                data_image.select('WGI_min').gt(0)).And(
                 data_image.select('NDWBI_mean').lt(-.28)).And(
                 data_image.select('NDWBI_mean').gt(-.4))
 
@@ -319,8 +317,8 @@ def create_training_areas(aoi, data_loc, aoi_name, year_string, clf_folder=None,
                 data_image.select('WGI_min').lt(0.1))
 
             mask_rainfed_trees_crops = data_image.select('slope').lte(4).And(
-                data_image.select('NDBI_min').gte(0)).And(
-                data_image.select('NDBI_min').lte(0.1)).And(
+                data_image.select('NDBI_min').gte(0.05)).And(
+                data_image.select('NDBI_min').lte(0.15)).And(
                 data_image.select('WGI_std').lte(.05)).And(
                 data_image.select('WGI_min').lt(-.05)).And(
                 data_image.select('NDWI_std').lt(.05))
@@ -328,9 +326,10 @@ def create_training_areas(aoi, data_loc, aoi_name, year_string, clf_folder=None,
             mask_scrubs = data_image.select('slope').gt(5).And(
                 data_image.select('NDWI_std').gte(0)).And(
                 data_image.select('NDWI_std').lte(.05)).And(
-                data_image.select('WGI_mean').gte(-.1)).And(
-                data_image.select('WGI_mean').lte(0)
-            )
+                data_image.select('WGI_mean').gte(-.15)).And(
+                data_image.select('WGI_mean').lte(0)).And(
+                data_image.select('nir').gte(1700)).And(
+                data_image.select('nir').lte(2700))
 
             mask_water = data_image.select('NDWBI_mean').gt(.4)
 
@@ -399,7 +398,7 @@ def create_training_areas(aoi, data_loc, aoi_name, year_string, clf_folder=None,
             )
 
             mask_irrigated_trees = data_image.select('slope').lte(4).And(
-                data_image.select('WGI_min').gt(0)).And(
+                data_image.select('WGI_min').gt(0.05)).And(
                 data_image.select('NDWBI_mean').lt(-.25))
 
             if hb:
@@ -413,16 +412,17 @@ def create_training_areas(aoi, data_loc, aoi_name, year_string, clf_folder=None,
                 data_image.select('NDWI_mean').gt(.04))
 
             mask_rainfed_trees_crops = data_image.select('slope').lte(4).And(
-                data_image.select('NDBI_min').gte(-.25)).And(
-                data_image.select('NDBI_min').lte(0.05)).And(
+                data_image.select('NDBI_min').gte(-0.05)).And(
+                data_image.select('NDBI_min').lte(0.06)).And(
                 data_image.select('WGI_std').gte(0)).And(
                 data_image.select('WGI_std').lte(.2)).And(
                 data_image.select('WGI_min').lt(-.05)).And(
                 data_image.select('WGI_min').gte(-.13)).And(
                 data_image.select('NDWI_std').lt(.1))
 
-            mask_natural_trees = data_image.select('slope').gt(5).And(
-                data_image.select('NDVI_min').gt(.2))
+            mask_natural_trees = data_image.select('slope').gt(8).And(
+                data_image.select('NDVI_min').gt(.2)).And(
+                data_image.select('nir').lt(2000))
 
             mask_scrubs = data_image.select('slope').gt(5).And(
                 data_image.select('NDWI_std').gte(0)).And(
@@ -517,7 +517,7 @@ def classify_irrigated_areas(input_features, training_areas, aoi, aoi_name, seas
 
     # check the class values present in the training image, in case thresholding did not separate patches for a lc class
     # the RF classifier does not consider  it for trainning
-    freqHist = training_areas_masked.reduceRegion(ee.Reducer.frequencyHistogram(), aoi, 30)
+    freqHist = training_areas_masked.reduceRegion(ee.Reducer.frequencyHistogram(), aoi, 30, maxPixels=1e15)
     class_values = ee.Dictionary(freqHist.get('training')).keys().getInfo()  # gets the unique class labels
     class_values = [int(x) for x in class_values]  # converts the strings to int
 
