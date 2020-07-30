@@ -411,9 +411,9 @@ def create_training_areas(aoi, data_loc, aoi_name, year_string, clf_folder=None,
                 data_image.select('NDWBI_mean').lt(-.25)
             )
 
-            mask_irrigated_trees = data_image.select('slope').lte(4).And(
-                data_image.select('WGI_min').gt(0)).And(
-                data_image.select('NDWBI_mean').lt(-.25))
+            mask_irrigated_trees = data_image.select('MTI').gt(3).And(	
+                data_image.select('NDBI_max').lt(-0.1)).And(
+                data_image.select('WGI_std').gt(0.18))
 
             if hb:
                 mask_irrigated_crops = mask_irrigated_crops.updateMask(habitats_mask)
