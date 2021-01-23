@@ -202,7 +202,7 @@ def take_strat_sample(
 
         for ind, lc_class in enumerate(lc_classes):
             # Paints the areas for each of the specified land cover classes to sample on the empty image
-            land_areas_for_sampling = land_areas_for_sampling.where(lc_map.eq(lc_class), ind + 2)
+            land_areas_for_sampling = land_areas_for_sampling.where(lc_map.eq(lc_class), 2)
 
         land_areas_for_sampling = land_areas_for_sampling.clip(aoi).reproject(feature_data[key].projection())
 
