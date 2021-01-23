@@ -158,3 +158,212 @@ def create_feature_data(year, aoi, aoi_name='undefined', sensor='landsat'):
         task = True
 
     return task  # returns the dictionary with the export tasks
+
+
+def take_strat_sample(
+        calibration_maps,
+        feature_data,
+        lc_classes,
+        aoi,
+        samplesize=5000,
+        scale=30,
+        tilescale=16,
+        classband='lc',
+        file_name='sample_collection',
+        dir_name='sample_directory',
+        min_connected_pixels=60):
+    """
+        Selects pixels from target classes extracted from calibration maps, filters out small patches of pixels and
+        performs a stratified sample from the remaining
+
+        :param calibration_maps: Dictionary containing calibration maps loaded as Earth Engine Image objects
+        :param feature_data: Collection of images containing the feature data for classification
+        :param lc_classes: A list containing the pixel values/label representing the target land cover classes in
+        the calibration maps
+        :param aoi: GEE FeatureCollection containing the vector of the area of interest for classification, this will be
+         used to mask any pixels outside of the area of interest
+        :param samplesize: Number of samples to take per class
+        :param scale: A nominal scale in meters of the projection to sample in. Defaults to the scale of the first band
+         of the input image.
+        :param tilescale: Scaling factor used to reduce aggregation tile size; using a larger tileScale (e.g. 2 or 4) may
+        enable computations that run out of memory with the default.
+        :param classband: The name to be used the band containing the patches of the target classes. Defaults to 'lc'
+        :param file_name: Name for the CSV file in which the samples are stored on the Google Drive, Defaults to 'sample_collection'
+        :param dir_name: Name for the directory in which the samples are stored on the Google Drive, Defaults to 'sample_directory'
+        :param min_connected_pixels: Number of minimum connected pixels a patch needs to contain, otherwise it is not
+         considered for sanpling
+        :return: export task, EE Image containing the masked patches, EE image containing the patches
+        """
+    sample_collection = None
+
+    for key in calibration_maps:
+        lc_map = calibration_maps[key]
+        land_areas_for_sampling = ee.Image(1)  # Empty image
+
+        for ind, lc_class in enumerate(lc_classes):
+            # Paints the areas for each of the specified land cover classes to sample on the empty image
+            land_areas_for_sampling = land_areas_for_sampling.where(lc_map.eq(lc_class), ind + 2)
+
+        land_areas_for_sampling = land_areas_for_sampling.clip(aoi).reproject(feature_data[key].projection())
+
+        training_regions_mask = land_areas_for_sampling.connectedPixelCount(min_connected_pixels).gte(
+            min_connected_pixels).reproject(feature_data[key].projection())
+        # Removes smaller land cover patches based on the number of connected pixels
+        lc_patches = land_areas_for_sampling.where(training_regions_mask.eq(0), 0).rename(classband)
+
+        data_for_sampling = feature_data[key].addBands(
+            lc_patches)  # combine the feature data and land cover patches into one image
+
+        sample = data_for_sampling.stratifiedSample(  # perform a stratified sample
+            numPoints=samplesize,
+            classBand=classband,
+            scale=scale,
+            tileScale=tilescale,
+            region=aoi.geometry()
+        ).filter(ee.Filter.neq(classband, 0))
+
+        if sample_collection is None:  # combine the samples for all the years being used for calibration
+            sample_collection = sample
+        else:
+            sample_collection = sample_collection.merge(sample)
+
+    task = ee.batch.Export.table.toDrive(
+        collection=sample_collection,
+        description=file_name,
+        fileFormat='CSV',
+        folder=dir_name,
+    )
+    task.start()  # export to the Google drive
+
+    return task, training_regions_mask, lc_patches
+
+
+
+def remove_outliers(df, bands_to_include, lower_quantile=0.05, upper_quantile=0.95):
+    """
+    Removes the outliers from a pandas dataframe
+    :param df: Pandas dataframe containing the data to remove
+    :param bands_to_include:bands for which to remove the outliers
+    :param lower_quantile: lower quantile, between 0 and 1
+    :param upper_quantile: upper quantile, between 0 and 1
+    :return: Pandas dataframe with outliers removed
+    """
+
+    q1 = df[bands_to_include].quantile(lower_quantile)
+    q3 = df[bands_to_include].quantile(upper_quantile)
+    iqr = q3 - q1
+    df = df[~((df[bands_to_include] < (q1 - 1.5 * iqr)) |(df[bands_to_include] > (q3 + 1.5 * iqr))).any(axis=1)]
+
+    return df
+
+
+def min_distance_classification(training, data, aoi, training_points=20000, scale=30, tilescale=4, classband='training'):
+    """
+    Function that samples training data and trains a Mahalanobis distance classifier with a regression output mode
+    and classifies the feature data provided
+
+    :param training: EE Image containing the areas with the target class
+    :param data:EE Image contaning the feature data for classification
+    :param aoi: GEE FeatureCollection containing the vector of the area of interest for classification, this will be
+     used to mask any pixels outside of the area of interest
+    :param training_points: Number of training points to sample
+    :param scale: A nominal scale in meters of the projection to sample in. Defaults to the scale of the first band
+     of the input image. Defaults to 30
+    :param tilescale: Scaling factor used to reduce aggregation tile size; using a larger tileScale (e.g. 2 or 4) may
+    enable computations that run out of memory with the default. Defaults to 4
+    :param classband: The name to be used the band containing the patches of the target classes. Defaults to 'training'
+    :return: EE Image containing the result of the Mahalanobis distance classification
+    """
+    bandnames = data.bandNames()
+
+    data = data.addBands(training)
+
+    training_data = data.stratifiedSample(
+        numPoints=training_points,
+        classBand=classband,
+        scale=scale,
+        region=aoi.geometry(),
+        tileScale=tilescale
+    ).filter(ee.Filter.neq(classband, 0))
+
+    distance_classifier = ee.Classifier.minimumDistance(metric='mahalanobis').train(
+        features=training_data,
+        classProperty=classband,
+        inputProperties=bandnames
+    ).setOutputMode('REGRESSION')
+
+    return data.classify(distance_classifier).rename('classification')
+
+
+def random_forest(training, data, aoi, training_points=20000, scale=30, tilescale=4, classband='training', trees=500, min_leaf_pop=10):
+    """
+        Function that samples training data and trains a Random Forest classifier with a probability output mode
+        and classifies the feature data provided
+        :param training: EE Image containing the areas with the target class
+        :param data:EE Image contaning the feature data for classification
+        :param aoi: GEE FeatureCollection containing the vector of the area of interest for classification, this will be
+         used to mask any pixels outside of the area of interest
+        :param training_points: Number of training points to sample
+        :param scale: A nominal scale in meters of the projection to sample in. Defaults to the scale of the first band
+         of the input image. Defaults to 30
+        :param tilescale: Scaling factor used to reduce aggregation tile size; using a larger tileScale (e.g. 2 or 4) may
+        enable computations that run out of memory with the default. Defaults to 4
+        :param classband: The name to be used the band containing the patches of the target classes. Defaults to 'training'
+        :param trees: The number of decision trees to create, defaults to 500
+        :param min_leaf_pop: Only create nodes whose training set contains at least this many points, defaults to 10
+        :return: EE Image containing the result of the RF classification
+        """
+    bandnames = data.bandNames()
+
+    data = data.addBands(training)
+
+    training_data = data.stratifiedSample(
+        numPoints=training_points,
+        classBand=classband,
+        scale=scale,
+        region=aoi.geometry(),
+        tileScale=tilescale
+    )
+
+    rf_classifier = ee.Classifier.smileRandomForest(
+        numberOfTrees=trees,
+        minLeafPopulation=min_leaf_pop,
+    ).train(
+        features=training_data,
+        classProperty=classband,
+        inputProperties=bandnames
+    ).setOutputMode('PROBABILITY')
+
+    result = data.classify(rf_classifier)
+
+    return result
+
+
+
+def perform_lda_scaling(data, intercept, coefficients, threshold, gt=True, min_connected_pixels=10):
+    transformed_features = {}
+    for ind, row in coefficients.iterrows():
+        transformed_features[row['Bandname']] = data.select(row['Bandname']).multiply(float(row['Coefficient']))
+
+    total_lda_1 = None
+
+    for feat_key in transformed_features:
+        if total_lda_1 is None:
+            total_lda_1 = transformed_features[feat_key]
+        else:
+            total_lda_1 = total_lda_1.add(transformed_features[feat_key])
+
+    total = total_lda_1.add(ee.Number(intercept[0])).rename('total');
+
+    if gt:
+        training_areas = total.gte(threshold).rename('training');
+    else:
+        training_areas = total.lte(threshold).rename('training');
+
+    training_areas_mask = training_areas.connectedPixelCount(min_connected_pixels).gte(min_connected_pixels).reproject(
+        data.projection())
+
+    final_img = total.addBands(training_areas.where(training_areas_mask.eq(0), 0))
+
+    return final_img
+
