@@ -9,8 +9,13 @@ from . import indices
 from .export import export_to_asset
 from .hydrology import add_mti
 
+# packages for handling R in Python
+import rpy2.robjects as robjects
+import rpy2.robjects.packages as rpackages
+import rpy2.robjects.vectors as StrVector
 
-def create_feature_data(year, aoi, aoi_name='undefined', sensor='landsat'):
+
+def create_feature_data(year, aoi, aoi_name='undefined', sensor='landsat', custom_name=None):
     """
     Creates and exports the feature data for classification to the GEE as two image assets (feature data for summer and
      winter).
@@ -145,11 +150,16 @@ def create_feature_data(year, aoi, aoi_name='undefined', sensor='landsat'):
     # flatten all the maps to a single GEE image
     crop_data_min_mean_max = ee.ImageCollection(feature_bands).toBands().set('sensor', sensor).set('scale', scale)
 
+    if not custom_name is None:
+        asset_id = f"data/{aoi_name}/{sensor}/feature_data_lda_{aoi_name}_{custom_name}"
+    else:
+        asset_id = f"data/{aoi_name}/{sensor}/feature_data_lda_{aoi_name}_{year_string}"
+
     try:
         task = export_to_asset(  # Export to the GEE account of the user
             asset=crop_data_min_mean_max,
             asset_type='image',
-            asset_id=f"data/{aoi_name}/{sensor}/feature_data_lda_{aoi_name}_{year_string}",
+            asset_id=asset_id,
             region=aoi_coordinates,
             scale=scale
         )
