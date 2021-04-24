@@ -63,8 +63,13 @@ def create_features(year, aoi, aoi_name='undefined', sensor='landsat'):
     elif sensor == 'sentinel':
         scale = 10
         col = sentinel.get_s2_image_collection(begin, end, aoi)
-
-        # TODO - complete sentinel 2 functionality.
+        col_monthly = sentinel.create_monthly_index_images(
+            image_collection=col,
+            start_date=begin,
+            end_date=end,
+            aoi=aoi,
+            stats=['median'],
+        )
 
     col_monthly = col_monthly.select(['R', 'G', 'B', 'NIR', 'SWIR'])  # Select these RGB, NIR and SWIR bands
 
@@ -162,7 +167,7 @@ def create_features(year, aoi, aoi_name='undefined', sensor='landsat'):
         ]
 
         # flatten all the maps to a single GEE image
-        crop_data_min_mean_max = ee.ImageCollection(feature_bands).toBands()
+        crop_data_min_mean_max = ee.ImageCollection(feature_bands).toBands().set('sensor', sensor).set('scale', scale)
 
         try:
             task = export_to_asset(  # Export to the GEE account of the user
@@ -283,14 +288,14 @@ def create_training_areas(aoi, data_loc, aoi_name, year_string, clf_folder=None,
             #         data_image.select('WGI_std').lt(.25))
 
             mask_irrigated_crops = data_image.select('slope').lte(4).And(
-                data_image.select('WGI_min').lt(0)).And(
-                data_image.select('WGI_std').gte(.05)).And(
+                data_image.select('WGI_min').lt(-.05)).And(
+                data_image.select('WGI_std').gte(.1)).And(
                 data_image.select('NDWBI_mean').lt(-.28)).And(
                 data_image.select('NDWBI_mean').gt(-.45)).And(
                 data_image.select('NDWBI_min').gt(-.5))
 
             mask_irrigated_trees = data_image.select('slope').lte(4).And(
-                data_image.select('WGI_min').gt(0)).And(
+                data_image.select('WGI_min').gt(0.05)).And(
                 data_image.select('NDWBI_mean').lt(-.28)).And(
                 data_image.select('NDWBI_mean').gt(-.4))
 
@@ -398,7 +403,7 @@ def create_training_areas(aoi, data_loc, aoi_name, year_string, clf_folder=None,
             )
 
             mask_irrigated_trees = data_image.select('slope').lte(4).And(
-                data_image.select('WGI_min').gt(0.05)).And(
+                data_image.select('WGI_min').gt(0.1)).And(
                 data_image.select('NDWBI_mean').lt(-.25))
 
             if hb:
@@ -462,13 +467,13 @@ def create_training_areas(aoi, data_loc, aoi_name, year_string, clf_folder=None,
 
         training_regions_image = training_regions_image.addBands(
             mask_aoi.rename('area_of_interest'))
-
         try:
             task = export_to_asset(
-                training_regions_image,
-                'image',
-                loc,
-                aoi_coordinates
+                asset=training_regions_image,
+                asset_type='image',
+                asset_id=loc,
+                region=aoi_coordinates,
+                scale=data_image.get('scale').getInfo()
             )
         except FileExistsError as e:  # if the asset already exists the user is notified and no error is generated
             print(e)
@@ -479,7 +484,7 @@ def create_training_areas(aoi, data_loc, aoi_name, year_string, clf_folder=None,
     return tasks
 
 
-def classify_irrigated_areas(input_features, training_areas, aoi, aoi_name, season, year, clf_folder=None, filename=None,
+def classify_irrigated_areas(input_features, training_areas, aoi, aoi_name, season, year, it_cl=1, ic_cl=2, clf_folder=None, filename=None,
                              min_tp=1000, max_tp=60000, tile_scale=16, no_trees=500, bag_fraction=.5, vps=5):
     """
     Performs a RF classification and postprocessing of irrigated land areas as determined by the RF.
@@ -489,6 +494,8 @@ def classify_irrigated_areas(input_features, training_areas, aoi, aoi_name, seas
     :param aoi: EE FeatureCollection, area of interest
     :param aoi_name: string, name of the area of interest, used when saving the results
     :param year: string, year of classification, is used when naming the results
+    :param it_cl: int, integer representing pixels belonging to irrigated trees
+    :param ic_cl: int, integer representing pixels belonging to irrigated crops
     :param season: string, name of the season being classified
     :param clf_folder: string, name of the folder where the results are to be saved on the GEE, defaults to None
     :param filename: string, name of the asset, if None the default name is used
@@ -511,6 +518,7 @@ def classify_irrigated_areas(input_features, training_areas, aoi, aoi_name, seas
 
     class_property = 'training'  # bandname of the band containing the patches from which the training pixels are sampled
     aoi_coordinates = aoi.geometry().bounds().getInfo()['coordinates']  # coordinates of the aoi, needed for export
+    scale = input_features.get('scale').getInfo()
 
     # select the land cover patches for all the land cover classes
     training_areas_masked = training_areas.select('training').updateMask(training_areas.select('training').gt(0))
@@ -550,7 +558,7 @@ def classify_irrigated_areas(input_features, training_areas, aoi, aoi_name, seas
         .stratifiedSample(
         numPoints=1000,
         classBand=class_property,
-        scale=30,
+        scale=scale,
         classValues=ee.List(class_values),
         classPoints=class_points.toList(),
         region=aoi.geometry(),
@@ -588,8 +596,8 @@ def classify_irrigated_areas(input_features, training_areas, aoi, aoi_name, seas
     # Post-processing
     # select the irrigated areas and paint them on an image
     irrigated_areas = ee.Image(0).toByte() \
-        .where(irrigated_area_classified_multiclass.select('classification').eq(5), 1) \
-        .where(irrigated_area_classified_multiclass.select('classification').eq(6), 2)
+        .where(irrigated_area_classified_multiclass.select('classification').eq(it_cl), 1) \
+        .where(irrigated_area_classified_multiclass.select('classification').eq(ic_cl), 2)
 
     # remove small speckles
     mask_small_patches_removed = irrigated_areas.updateMask(irrigated_areas.gt(0)) \
@@ -616,14 +624,15 @@ def classify_irrigated_areas(input_features, training_areas, aoi, aoi_name, seas
         irrigated_areas.rename('irrigated_area'),
         irrigated_area_classified_multiclass.rename('rf_all_classes'),
         input_features.select('training'),
-    ]).toBands().regexpRename('([0-9]{1,3}_)', '')
+    ]).toBands().regexpRename('([0-9]{1,3}_)', '').set('scale', scale)
 
     try:  # export the results to asset
         task = export_to_asset(
             irrigated_results,
             'image',
             loc,
-            aoi_coordinates
+            aoi_coordinates,
+            scale
         )
     except FileExistsError as e:
         print(e)
@@ -659,8 +668,8 @@ def join_seasonal_irrigated_areas(irrigated_area_summer, irrigated_area_winter, 
     aoi_coordinates = aoi.geometry().bounds().getInfo()['coordinates']  # coordinates of the aoi, needed for export
 
     # Get the irrigated areas from the classification results
-    summer = ee.Image().constant(1).where(irrigated_area_summer.eq(1), 3).where(irrigated_area_summer.eq(2), 2)
-    winter = ee.Image().constant(1).where(irrigated_area_winter.eq(1), 4).where(irrigated_area_winter.eq(2), 5)
+    summer = ee.Image().constant(1).where(irrigated_area_summer.eq(1), 3).where(irrigated_area_summer.eq(2), 2).reproject(irrigated_area_summer.projection())
+    winter = ee.Image().constant(1).where(irrigated_area_winter.eq(1), 4).where(irrigated_area_winter.eq(2), 5).reproject(irrigated_area_winter.projection())
 
     # multiply the seasonal irrigation maps with each other
     combined_irrigated_area_map = summer.multiply(winter)
@@ -689,7 +698,7 @@ def join_seasonal_irrigated_areas(irrigated_area_summer, irrigated_area_winter, 
             image=results,
             description=filename,
             folder=clf_folder,
-            scale=30,
+            scale=10,
             region=aoi_coordinates,
         )
         task = export_task_ext.start()
@@ -697,10 +706,11 @@ def join_seasonal_irrigated_areas(irrigated_area_summer, irrigated_area_winter, 
     elif export_method == 'asset':
         try:
             task = export_to_asset(
-                results,
-                'image',
-                loc,
-                aoi_coordinates
+                asset=results,
+                asset_type='image',
+                asset_id=loc,
+                region=aoi_coordinates,
+                scale=10
             )
         except FileExistsError as e:
             print(e)
