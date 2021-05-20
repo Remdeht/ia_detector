@@ -19,29 +19,23 @@ def create_folium_map(images=None, name=None, coords=[20, 0], zoom=6, height='10
 
     folium_map = folium.Map(location=coords, zoom_start=zoom, height=height, control_scale=True)  # create a folium map
 
-    # If no dictionary with EE Image id's have been provided an folium map with Google satellite basemap is returned
+    folium.TileLayer(  # Add the Google Sattelite Map as a Basemap
+        tiles='http://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+        attr='Google',
+        name='Google Sat',
+        overlay=False,
+        control=False,
+        subdomains=['mt0', 'mt1', 'mt2', 'mt3'],
+        max_zoom=20
+    ).add_to(folium_map)
+
     if images is None:
-        folium.TileLayer(
-            tiles='http://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
-            attr='Google',
-            name='Google Sat',
-            overlay=True,
-            control=True,
-            subdomains= ['mt0', 'mt1', 'mt2', 'mt3'],
-            max_zoom=20
-        ).add_to(folium_map)
+        # If no dictionary with EE Image id's have been provided an folium map with Google satellite basemap is returned
+        return folium_map
 
     else:
-        # first add the Google satellite basemap
-        folium.TileLayer(
-            tiles='http://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
-            attr='Google',
-            name='Google Sat',
-            overlay=True,
-            control=True,
-            subdomains=['mt0', 'mt1', 'mt2', 'mt3'],
-            max_zoom=20
-        ).add_to(folium_map)
+        # Create a Custom Pane for the GEE maps
+        folium.map.CustomPane(name='main', z_index=500).add_to(folium_map)
 
         for key in images:  # loop through the dict. and add all map id's as layer
             folium.TileLayer(
@@ -49,6 +43,7 @@ def create_folium_map(images=None, name=None, coords=[20, 0], zoom=6, height='10
                 attr='Map Data &copy; <a href="https://earthengine.google.com/">Google Earth Engine</a>',
                 overlay=True,
                 name=key,
+                pane='main',
             ).add_to(folium_map)
 
     folium_map.add_child(folium.LayerControl())  # add layer control
