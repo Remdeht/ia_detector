@@ -9,7 +9,7 @@ import urllib3
 from .constants import GEE_USER_PATH
 
 
-def export_to_asset(asset, asset_type, asset_id, region, scale=30):
+def export_to_asset(asset, asset_type, asset_id, region, scale=30, overwrite=False):
     """
     Exports a vector or image to the GEE asset collection
     :param asset: GEE Image or FeatureCollection
@@ -19,8 +19,6 @@ def export_to_asset(asset, asset_type, asset_id, region, scale=30):
     :param user_path: optional parameter to overwrite the set GEE user path
     :return task: Returns a GEE export task
     """
-
-    # TODO - try to add a overwrite method
 
     user_path = GEE_USER_PATH + "/ia_classification"
 
@@ -37,7 +35,13 @@ def export_to_asset(asset, asset_type, asset_id, region, scale=30):
         ee.data.createAsset({'type': 'FOLDER'}, f'{user_path}/vector')
 
     if ee.data.getInfo(f'{user_path}/raster/{asset_id}') or ee.data.getInfo(f'{user_path}/vector/{asset_id}'):
-        raise FileExistsError('asset already exists')  # in case the asset already exists
+        if overwrite is True:  # In case overwriting is enabled delete the existing asset before continuing
+            if asset_type == 'image':
+                ee.data.deleteAsset(f'{user_path}/raster/{asset_id}')
+            else:
+                ee.data.deleteAsset(f'{user_path}/vector/{asset_id}')
+        else:
+            raise FileExistsError('asset already exists')  # in case the asset already exists and overwrite is disabled
 
     if '/' in asset_id:
         # If a "/" is present the asset is supposed to be saved in a deeper folder. The following lines make sure that
@@ -69,7 +73,7 @@ def export_to_asset(asset, asset_type, asset_id, region, scale=30):
             maxPixels=1e13,
         )
         export_task.start()
-        print(f"Export started for {asset_id}")
+        print(f"Export started for {user_path}/raster/{asset_id}")
         return export_task
 
     elif asset_type == 'vector':
@@ -80,7 +84,7 @@ def export_to_asset(asset, asset_type, asset_id, region, scale=30):
         )
 
         export_task.start()
-        print(f"Export started for {asset_id}")
+        print(f"Export started for {user_path}/vector/{asset_id}")
         return export_task
 
 
@@ -96,8 +100,6 @@ def export_to_drive(asset, asset_type, asset_name, region, folder, crs='EPSG:432
     :param crs: projection for the asset
     :return: EE export task
     """
-
-
 
     if asset_type == 'image':
         export_task = ee.batch.Export.image.toDrive(
