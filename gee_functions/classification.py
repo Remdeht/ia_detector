@@ -505,7 +505,7 @@ def classify_irrigated_areas(input_features, training_areas, aoi, aoi_name, seas
     :param no_trees: int, number of trees to use in the random forest, defaults to 500
     :param bag_fraction: float, fraction of training pixels to be left out of the bag for each tree, defaults to 0.5
     :param vps: int, variables per split, indicates how many variables to use per split. Defaults to 5.
-    :return: EE task for the export of the results of the classification as an EE Image to an EE asset.
+    :return: EE task for the export of the classification results to an EE asset & the trained RF Classifier
     """
 
     # sets up the location where the results of the classification are saved.
@@ -636,9 +636,9 @@ def classify_irrigated_areas(input_features, training_areas, aoi, aoi_name, seas
         )
     except FileExistsError as e:
         print(e)
-        return True
+        return True, classifier_multiclass
     else:
-        return task
+        return task, classifier_multiclass
 
 
 def join_seasonal_irrigated_areas(irrigated_area_summer, irrigated_area_winter, aoi_name, year, aoi,
@@ -675,15 +675,15 @@ def join_seasonal_irrigated_areas(irrigated_area_summer, irrigated_area_winter, 
     combined_irrigated_area_map = summer.multiply(winter)
 
     # assign the type of seasonal irrigated area class to the map
-    combined_irrigated_area_map = ee.Image(0) \
-        .where(combined_irrigated_area_map.eq(10), 1) \
-        .where(combined_irrigated_area_map.eq(12), 2) \
-        .where(combined_irrigated_area_map.eq(2), 3)\
-        .where(combined_irrigated_area_map.eq(3), 4) \
-        .where(combined_irrigated_area_map.eq(5), 5) \
-        .where(combined_irrigated_area_map.eq(4), 6) \
-        .where(combined_irrigated_area_map.eq(8), 7) \
-        .where(combined_irrigated_area_map.eq(15), 7)
+    combined_irrigated_area_map = ee.Image(0).where(
+        combined_irrigated_area_map.eq(10), 1).where(
+        combined_irrigated_area_map.eq(12), 2).where(
+        combined_irrigated_area_map.eq(2), 3).where(
+        combined_irrigated_area_map.eq(3), 4).where(
+        combined_irrigated_area_map.eq(5), 5).where(
+        combined_irrigated_area_map.eq(4), 6).where(
+        combined_irrigated_area_map.eq(8), 7).where(
+        combined_irrigated_area_map.eq(15), 7)
 
     # create a results image with the seasonal results and the total overview map
     results = ee.ImageCollection([

@@ -275,5 +275,108 @@ def create_categorical_legend(map, palette, classnames):
     return map.get_root().add_child(macro)  # add element to the map and return the map
 
 
+def create_hectares_label(map, hectares):
+    """
+    Function to create and add a categorical legend to a folium map.
+
+    :param map: folium map to which the legend will be added
+    :param palette: list with color codes for each class
+    :param classnames: list with class names, matching the palette list
+    :return: folium map with categorical legend
+    """
+
+    template_head = """
+    {% macro html(this, kwargs) %}
+
+    <!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>jQuery UI Draggable - Default functionality</title>
+      <link rel="stylesheet" href="//code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+
+      <script src="https://code.jquery.com/jquery-1.12.4.js"></script>
+      <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
+
+      <script>
+      $( function() {
+        $( "#ha-label" ).draggable({
+                        start: function (event, ui) {
+                            $(this).css({
+                                right: "auto",
+                                top: "auto",
+                                bottom: "auto"
+                            });
+                        }
+                    });
+    });
+
+      </script>
+    </head>
+    <body>
+    """
+
+    styling = f"""
+    <div id='ha-label' class='ha-label' 
+        style='position: absolute; z-index:9999; border:2px solid grey; background-color:rgba(255, 255, 255, 0.8);
+         border-radius:6px; padding: 10px; font-size:14px; left: 700px; top: 20px;'>
+
+    <div class='legend-title'>Total Irrigated Area: <it>{hectares} Hectares</it></div>
+
+    </body>
+    </html>
+    """
+    end = """
+    <style type='text/css'>
+      .ha-label .legend-title {
+        text-align: center;
+        margin-bottom: 5px;
+        font-weight: bold;
+        font-size: 90%;
+        }
+      .ha-label .legend-scale ul {
+        margin: 0;
+        margin-bottom: 5px;
+        text-align: center;
+        padding: 0;
+        float: left;
+        list-style: none;
+        }
+      .ha-label .legend-scale ul li {
+        font-size: 80%;
+        text-align: center;
+        list-style: none;
+        margin-left: 0;
+        line-height: 18px;
+        margin-bottom: 2px;
+        }
+      .ha-label ul.legend-labels li span {
+        display: block;
+        text-align: center;
+        float: center;
+        height: 16px;
+        width: 30px;
+        margin-right: 5px;
+        margin-left: 0;
+        border: 1px solid #999;
+        }
+      .ha-label .legend-source {
+        font-size: 80%;
+        text-align: center;
+        color: #777;
+        clear: both;
+        }
+      .ha-label a {
+        color: #777;
+        }
+    </style>
+    {% endmacro %}"""
+
+    template = template_head + styling + end  # Combine all the parts into a single templace docstring
+    macro = MacroElement()
+    macro._template = Template(template)  # create an element
+
+    return map.get_root().add_child(macro)  # add element to the map and return the map
 
 
