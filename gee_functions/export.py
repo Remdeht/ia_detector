@@ -16,7 +16,8 @@ def export_to_asset(asset, asset_type, asset_id, region, scale=30, overwrite=Fal
     :param asset_type: String specifying if the asset is a vector ('vector') or ('image').
     :param asset_id: ID under which the asset will be saved
     :param region: Vector representing the area of interest
-    :param user_path: optional parameter to overwrite the set GEE user path
+    :param scale: pixel resolution tp use for export (meter per pixel)
+    :param overwrite: Boolean, if True it overwrites previous classification result with the same parameters/aoi
     :return task: Returns a GEE export task
     """
 

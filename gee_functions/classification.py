@@ -485,7 +485,7 @@ def create_training_areas(aoi, data_loc, aoi_name, year_string, clf_folder=None,
 
 
 def classify_irrigated_areas(input_features, training_areas, aoi, aoi_name, season, year, it_cl=1, ic_cl=2, clf_folder=None, filename=None,
-                             min_tp=1000, max_tp=60000, tile_scale=16, no_trees=500, bag_fraction=.5, vps=5):
+                             min_tp=1000, max_tp=60000, tile_scale=16, no_trees=500, bag_fraction=.5, vps=5, overwrite=False):
     """
     Performs a RF classification and postprocessing of irrigated land areas as determined by the RF.
 
@@ -505,6 +505,7 @@ def classify_irrigated_areas(input_features, training_areas, aoi, aoi_name, seas
     :param no_trees: int, number of trees to use in the random forest, defaults to 500
     :param bag_fraction: float, fraction of training pixels to be left out of the bag for each tree, defaults to 0.5
     :param vps: int, variables per split, indicates how many variables to use per split. Defaults to 5.
+    :param overwrite: Boolean, if True it overwrites previous classification result with the same parameters/aoi
     :return: EE task for the export of the classification results to an EE asset & the trained RF Classifier
     """
 
@@ -632,7 +633,8 @@ def classify_irrigated_areas(input_features, training_areas, aoi, aoi_name, seas
             'image',
             loc,
             aoi_coordinates,
-            scale
+            scale,
+            overwrite=overwrite
         )
     except FileExistsError as e:
         print(e)
@@ -642,7 +644,7 @@ def classify_irrigated_areas(input_features, training_areas, aoi, aoi_name, seas
 
 
 def join_seasonal_irrigated_areas(irrigated_area_summer, irrigated_area_winter, aoi_name, year, aoi,
-                                  export_method='drive', clf_folder=None, filename=None):
+                                  export_method='drive', clf_folder=None, filename=None, scale=30, overwrite=False):
     """
     Combines the irrigated land areas determined by the RF for the summer and winter season into a single overview map.
 
@@ -654,6 +656,8 @@ def join_seasonal_irrigated_areas(irrigated_area_summer, irrigated_area_winter, 
     :param export_method: string, 'asset' to export results as asset or 'drive' to export the results to drive
     :param clf_folder: string, name of the folder to store the results, defaults to None
     :param filename: string, overwrites the default filename
+    :param scale: pixel resolution tp use for export (meter per pixel)
+    :param overwrite: Boolean, if True it overwrites previous classification result with the same parameters/aoi
     :return: returns an GEE task, or True if asset already exists.
     """
     # sets up the location where the results of the classification are saved
@@ -698,7 +702,7 @@ def join_seasonal_irrigated_areas(irrigated_area_summer, irrigated_area_winter, 
             image=results,
             description=filename,
             folder=clf_folder,
-            scale=10,
+            scale=scale,
             region=aoi_coordinates,
         )
         task = export_task_ext.start()
@@ -710,7 +714,8 @@ def join_seasonal_irrigated_areas(irrigated_area_summer, irrigated_area_winter, 
                 asset_type='image',
                 asset_id=loc,
                 region=aoi_coordinates,
-                scale=10
+                scale=scale,
+                overwrite=overwrite
             )
         except FileExistsError as e:
             print(e)
