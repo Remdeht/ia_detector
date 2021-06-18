@@ -9,13 +9,8 @@ from . import indices
 from .export import export_to_asset
 from .hydrology import add_mti
 
-# packages for handling R in Python
-import rpy2.robjects as robjects
-import rpy2.robjects.packages as rpackages
-import rpy2.robjects.vectors as StrVector
 
-
-def create_feature_data(year, aoi, aoi_name='undefined', sensor='landsat', custom_name=None):
+def create_feature_data(year, aoi, aoi_name='undefined', sensor='landsat', custom_name=None, overwrite=False):
     """
     Creates and exports the feature data for classification to the GEE as two image assets (feature data for summer and
      winter).
@@ -24,7 +19,7 @@ def create_feature_data(year, aoi, aoi_name='undefined', sensor='landsat', custo
     :param aoi: GEE FeatureCollection of the area of interest
     :param aoi_name: name of the aoi, this is used for the naming of the results
     :param sensor: string indicating which satellite to use, landsat or sentinel
-    :param gap_fill: boolean indicating whether to use histogram matching fill algorithm
+    :param custom_name: Optional, provide a name for the asset instead of the year
     :return: dictionary containing two GEE export tasks
     """
 
@@ -73,7 +68,9 @@ def create_feature_data(year, aoi, aoi_name='undefined', sensor='landsat', custo
         .map(indices.add_ndwi).filter(ee.Filter.listContains('system:band_names', 'NDWI')) \
         .map(indices.add_ndwi_mcfeeters).filter(ee.Filter.listContains('system:band_names', 'NDWBI')) \
         .map(indices.add_ndbi).filter(ee.Filter.listContains('system:band_names', 'NDBI')) \
-        .map(indices.add_wgi).filter(ee.Filter.listContains('system:band_names', 'WGI'))
+        .map(indices.add_wgi).filter(ee.Filter.listContains('system:band_names', 'WGI')) \
+        .map(indices.add_evi).filter(ee.Filter.listContains('system:band_names', 'EVI')) \
+        .map(indices.add_savi).filter(ee.Filter.listContains('system:band_names', 'SAVI'))
 
     mti = add_mti().clip(aoi)
     slope = ee.Terrain.slope(ee.Image("USGS/SRTMGL1_003").select('elevation')).clip(aoi).rename('slope')
@@ -105,6 +102,16 @@ def create_feature_data(year, aoi, aoi_name='undefined', sensor='landsat', custo
     col_max_monthly_median_wgi = col_monthly.select('WGI').max()
     col_min_monthly_median_wgi = col_monthly.select('WGI').min()
     col_std_dev_monthly_median_wgi = col_monthly.select('WGI').reduce(ee.Reducer.stdDev())
+
+    col_mean_monthly_median_evi = col_monthly.select('EVI').mean()
+    col_max_monthly_median_evi = col_monthly.select('EVI').max()
+    col_min_monthly_median_evi = col_monthly.select('EVI').min()
+    col_std_dev_monthly_median_evi = col_monthly.select('EVI').reduce(ee.Reducer.stdDev())
+
+    col_mean_monthly_median_savi = col_monthly.select('SAVI').mean()
+    col_max_monthly_median_savi = col_monthly.select('SAVI').max()
+    col_min_monthly_median_savi = col_monthly.select('SAVI').min()
+    col_std_dev_monthly_median_savi = col_monthly.select('SAVI').reduce(ee.Reducer.stdDev())
 
     col_mean_monthly_mean_ndbi = col_monthly.select('NDBI').mean()
     col_max_monthly_median_ndbi = col_monthly.select('NDBI').max()
@@ -139,10 +146,18 @@ def create_feature_data(year, aoi, aoi_name='undefined', sensor='landsat', custo
         col_min_monthly_median_ndbi.rename('NDBI_min'),
         col_mean_monthly_mean_ndbi.rename('NDBI_mean'),
         col_max_monthly_median_ndbi.rename('NDBI_max'),
+        col_min_monthly_median_evi.rename('EVI_min'),
+        col_mean_monthly_median_evi.rename('EVI_mean'),
+        col_max_monthly_median_evi.rename('EVI_max'),
+        col_min_monthly_median_savi.rename('SAVI_min'),
+        col_mean_monthly_median_savi.rename('SAVI_mean'),
+        col_max_monthly_median_savi.rename('SAVI_max'),
         col_std_dev_monthly_median_ndvi.rename('NDVI_std'),
         col_std_dev_monthly_median_gcvi.rename('GCVI_std'),
         col_std_dev_monthly_median_ndwi.rename('NDWI_std'),
         col_std_dev_monthly_median_wgi.rename('WGI_std'),
+        col_std_dev_monthly_median_evi.rename('EVI_std'),
+        col_std_dev_monthly_median_savi.rename('SAVI_std'),
         mti.rename('MTI'),
         slope
     ]
@@ -150,7 +165,7 @@ def create_feature_data(year, aoi, aoi_name='undefined', sensor='landsat', custo
     # flatten all the maps to a single GEE image
     crop_data_min_mean_max = ee.ImageCollection(feature_bands).toBands().set('sensor', sensor).set('scale', scale)
 
-    if not custom_name is None:
+    if custom_name is not None:
         asset_id = f"data/{aoi_name}/{sensor}/feature_data_lda_{aoi_name}_{custom_name}"
     else:
         asset_id = f"data/{aoi_name}/{sensor}/feature_data_lda_{aoi_name}_{year_string}"
@@ -161,7 +176,8 @@ def create_feature_data(year, aoi, aoi_name='undefined', sensor='landsat', custo
             asset_type='image',
             asset_id=asset_id,
             region=aoi_coordinates,
-            scale=scale
+            scale=scale,
+            overwrite=overwrite
         )
     except FileExistsError as e:  # if the asset already exists the user is notified and no error is generated
         print(e)
@@ -246,8 +262,6 @@ def take_strat_sample(
     task.start()  # export to the Google drive
 
     return task, training_regions_mask, lc_patches
-
-
 
 def remove_outliers(df, bands_to_include, lower_quantile=0.05, upper_quantile=0.95):
     """
