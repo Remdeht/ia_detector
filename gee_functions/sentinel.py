@@ -3,7 +3,8 @@ from datetime import timedelta, datetime
 from dateutil.relativedelta import relativedelta
 from monthdelta import monthdelta
 
-def s2_cloudmask(image):
+
+def s2_cloudmask(image: ee.Image) -> ee.Image:
 
     qa = image.select('QA60');
     # Bits 10 and 11 are clouds and cirrus, respectively.
@@ -16,7 +17,7 @@ def s2_cloudmask(image):
     return image.updateMask(mask)
 
 
-def rename_s2_bands(image):
+def rename_s2_bands(image: ee.Image) -> ee.Image:
     return image.rename(['B', 'G', 'R', 'NIR', 'SWIR2', 'SWIR', 'QA60'])
 
 

@@ -1,8 +1,10 @@
 """
 All the functions for calculating vegetation indices based on satellite imagery
 """
+import ee
 
-def add_ndvi(image):
+
+def add_ndvi(image: ee.Image):
     """
     Calculates the Normalized Difference Vegetation Index (NDVI)
     """
@@ -10,14 +12,15 @@ def add_ndvi(image):
     return image.addBands(ndvi)
 
 
-def add_ndwi(image):
+def add_ndwi(image: ee.Image):
     """
     Calculates the Normalized Difference Water Content Index (NDWI) as proposed by Gao (1996)
     """
     ndvi = image.normalizedDifference(['NIR', 'SWIR']).rename('NDWI');
     return image.addBands(ndvi)
 
-def add_ndwi_mcfeeters(image):
+
+def add_ndwi_mcfeeters(image: ee.Image):
     """
     Calculates the Normalized Difference Water Index (NDWI) as proposed by McFeeters (1996)
     """
@@ -25,14 +28,15 @@ def add_ndwi_mcfeeters(image):
     return image.addBands(ndwi)
 
 
-def add_ndbi(image):
+def add_ndbi(image: ee.Image):
     """
     Calculates the Normalized Difference Built-up Index (NDBI) as proposed by McFeeters (1996)
     """
     ndbi = image.normalizedDifference(['SWIR', 'NIR']).rename('NDBI')
     return image.addBands(ndbi)
 
-def add_evi(image):
+
+def add_evi(image: ee.Image):
     """
     Calculates the Enhanced Vegetation Index (EVI)
     """
@@ -46,7 +50,7 @@ def add_evi(image):
     return image.addBands(evi)
 
 
-def add_savi(image):
+def add_savi(image: ee.Image):
     """
     Calculates the Soil Adjusted Vegetation Index (SAVI)
     """
@@ -59,7 +63,7 @@ def add_savi(image):
     return image.addBands(savi)
 
 
-def add_gi(image):
+def add_gi(image: ee.Image):
     """
     Calculates the Greenness Index (GI)
     """
@@ -73,7 +77,7 @@ def add_gi(image):
     return image.addBands(gi)
 
 
-def add_gcvi(image):
+def add_gcvi(image: ee.Image):
     """
     Calculates the Green Chlorophyll Vegetation Index (GCVI)
     """
@@ -87,7 +91,7 @@ def add_gcvi(image):
     return image.addBands(gcvi)
 
 
-def add_wgi(image):
+def add_wgi(image: ee.Image):
     """
     Calculates the Water Adjusted Green Index (WGI)
     """

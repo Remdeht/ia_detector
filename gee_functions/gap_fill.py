@@ -2,7 +2,7 @@
 Applies the USGS L7 Phase-2 Gap filling protocol, using a single kernel size.
 Based on the GEE code found on the GEE forums. See this GEE code editor for original code:
 https://code.earthengine.google.com/263d5d0fec9a198307c7661739801382
-Original gap fill algorithm was proposed in 'SLC gap-filled products phase one methodology' by Scarammuza et al. (2004)
+Original gap fill algorithm was proposed in 'SLC gap-filled products phase one calibration' by Scarammuza et al. (2004)
 """
 
 import ee

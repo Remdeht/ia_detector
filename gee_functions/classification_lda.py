@@ -2,67 +2,104 @@
 All the functions used in the classification process of the irrigated area detector
 """
 
+# Local imports
 import ee
-from . import landsat
-from . import sentinel
-from . import indices
-from .export import export_to_asset
-from .hydrology import add_mti
+import pandas as pd
+
+try:
+    import landsat
+    import sentinel
+    import indices
+    from export import export_to_asset, track_task
+    from hydrology import add_mti
+
+except ImportError:
+    from . import landsat
+    from . import sentinel
+    from . import indices
+    from .export import export_to_asset, track_task
+    from .hydrology import add_mti
 
 
-def create_feature_data(year, aoi, aoi_name='undefined', sensor='landsat', custom_name=None, overwrite=False):
+def create_feature_data(
+        date_range: tuple,
+        aoi: ee.FeatureCollection,
+        creation_method: str,
+        aoi_name: str = 'undefined',
+        sensor: str = 'landsat',
+        custom_name: str = None,
+        overwrite: bool = False ) -> ee.batch.Task or bool:
     """
     Creates and exports the feature data for classification to the GEE as two image assets (feature data for summer and
-     winter).
+    winter).
 
-    :param year: tuple containing the begin and end date for the selection of imagery. Date format: YYYY-MM-DD.
-    :param aoi: GEE FeatureCollection of the area of interest
+    :param date_range: tuple containing the begin and end date for the selection of imagery. Date format: YYYY-MM-DD.
+    :param aoi: EE FeatureCollection of the vector representing the area of interest
     :param aoi_name: name of the aoi, this is used for the naming of the results
     :param sensor: string indicating which satellite to use, landsat or sentinel
-    :param custom_name: Optional, provide a name for the asset instead of the year
+    :param custom_name: Optional, provide a name for the asset. If no custom name is given the year of the start date
+    will be used
+    :param overwrite: Optional, provide a name for the asset. If no custom name is given the year of the start date
+    will be used
     :return: dictionary containing two GEE export tasks
     """
 
     # Extract the date range for the period from the tuple
-    begin = year[0]
-    end = year[1]
+    begin = date_range[0]
+    end = date_range[1]
 
     year_string = end[0:4]  # string with the year for the naming of the assets
 
-    aoi_coordinates = aoi.geometry().bounds().getInfo()['coordinates']  # aoi coordinates
+    aoi_info = aoi.geometry().getInfo()
+
+    if 'coordinates' in aoi_info.keys():
+        aoi_coordinates = aoi_info['coordinates']  # aoi coordinates
+
+        if len(aoi_coordinates) > 1:
+            aoi_coordinates = ee.Geometry.MultiPolygon(aoi_coordinates)
+        else:
+            aoi_coordinates = ee.Geometry.Polygon(aoi_coordinates)
+
+    else:
+        return None
 
     if sensor == 'landsat':
         scale = 30
         # Retrieve landsat 5 and 7 imagery for the period and merge them together
-        ls_5 = landsat.get_ls5_image_collection(begin, end, aoi)
-        ls_7 = landsat.get_ls7_image_collection(begin, end, aoi)
-        ls_8 = landsat.get_ls8_image_collection(begin, end, aoi)
+        ls_5 = landsat.get_ls_image_collection('5', begin, end, aoi)
+        ls_7 = landsat.get_ls_image_collection('7', begin, end, aoi)
+        ls_8 = landsat.get_ls_image_collection('8', begin, end, aoi)
+        ls_9 = landsat.get_ls_image_collection('9', begin, end, aoi)
 
-        col = ls_5.merge(ls_7).merge(ls_8).map(landsat.remove_edges)  # merge all the landsat scenes into single col.
+        col = ls_5.merge(ls_7).merge(ls_8).merge(ls_9).map(landsat.remove_edges)  # merge all the landsat scenes into single col.
 
-        # create monthly band composites
-        col_monthly = landsat.create_monthly_index_images(
-            image_collection=col,
-            start_date=begin,
-            end_date=end,
-            aoi=aoi,
-            stats=['median'],
-        )
+        if creation_method in ['monthly_composites_reduced', 'monthly_composites']:
+            # create monthly band composites
+            col = landsat.create_monthly_index_images(
+                image_collection=col,
+                start_date=begin,
+                end_date=end,
+                aoi=aoi,
+                stats=['median'],
+            )
 
     elif sensor == 'sentinel':
         scale = 10
         col = sentinel.get_s2_image_collection(begin, end, aoi)
-        col_monthly = sentinel.create_monthly_index_images(
-            image_collection=col,
-            start_date=begin,
-            end_date=end,
-            aoi=aoi,
-            stats=['median'],
-        )
 
-    col_monthly = col_monthly.select(['R', 'G', 'B', 'NIR', 'SWIR'])  # Select these RGB, NIR and SWIR bands
+        # col = sentinel.create_monthly_index_images(
+        #     image_collection=col,
+        #     start_date=begin,
+        #     end_date=end,
+        #     aoi=aoi,
+        #     stats=['median'],
+        # )
+    else:
+        raise ValueError(f'Provided unknown sensor: {sensor}')
 
-    col_monthly = col_monthly.map(indices.add_gcvi).filter(
+    col = col.select(['R_*', 'G_*', 'B_*', 'NIR_*', 'SWIR_*'])  # Select these RGB, NIR and SWIR bands
+
+    col = col.map(indices.add_gcvi).filter(
         ee.Filter.listContains('system:band_names', 'GCVI')) \
         .map(indices.add_ndvi).filter(ee.Filter.listContains('system:band_names', 'NDVI')) \
         .map(indices.add_ndwi).filter(ee.Filter.listContains('system:band_names', 'NDWI')) \
@@ -72,107 +109,79 @@ def create_feature_data(year, aoi, aoi_name='undefined', sensor='landsat', custo
         .map(indices.add_evi).filter(ee.Filter.listContains('system:band_names', 'EVI')) \
         .map(indices.add_savi).filter(ee.Filter.listContains('system:band_names', 'SAVI'))
 
-    mti = add_mti().clip(aoi)
-    slope = ee.Terrain.slope(ee.Image("USGS/SRTMGL1_003").select('elevation')).clip(aoi).rename('slope')
+    mti = add_mti()
+    slope = ee.Terrain.slope(ee.Image("USGS/SRTMGL1_003").select('elevation')).rename('slope')
 
-    # generate median band composites for each season
-    col_mean_monthly_median_blue = col_monthly.select('B').median().rename('blue')
-    col_mean_monthly_median_green = col_monthly.select('G').median().rename('green')
-    col_mean_monthly_median_red = col_monthly.select('R').median().rename('red')
-    col_mean_monthly_median_nir = col_monthly.select('NIR').median().rename('nir')
-    col_mean_monthly_median_swir_1 = col_monthly.select('SWIR').median().rename('swir1')
+    tc = ee.ImageCollection('IDAHO_EPSCOR/TERRACLIMATE').select(['pdsi', 'soil', 'pr']).filter(
+        ee.Filter.date(begin, end))
 
-    # generate the pixel statistic maps for the spectral indices
-    col_mean_monthly_median_ndvi = col_monthly.select('NDVI').mean()
-    col_max_monthly_median_ndvi = col_monthly.select('NDVI').max()
-    col_min_monthly_median_ndvi = col_monthly.select('NDVI').min()
-    col_std_dev_monthly_median_ndvi = col_monthly.select('NDVI').reduce(ee.Reducer.stdDev())
+    if creation_method in ['monthly_composites_reduced', 'all_scenes_reduced']:
 
-    col_mean_monthly_median_gcvi = col_monthly.select('GCVI').mean()
-    col_max_monthly_median_gcvi = col_monthly.select('GCVI').max()
-    col_min_monthly_median_gcvi = col_monthly.select('GCVI').min()
-    col_std_dev_monthly_median_gcvi = col_monthly.select('GCVI').reduce(ee.Reducer.stdDev())
+        col_mean = col.mean().regexpRename('(.*)', '$1_mean', False)
+        col_median = col.median().regexpRename('(.*)', '$1_median', False)
+        col_min = col.min().regexpRename('(.*)', '$1_min', False)
+        col_max = col.max().regexpRename('(.*)', '$1_max', False)
+        col_p85 = col.reduce(ee.Reducer.percentile([85]))
+        col_p15 = col.reduce(ee.Reducer.percentile([15]))
+        col_std_dev = col.reduce(ee.Reducer.stdDev())
 
-    col_mean_monthly_median_ndwi = col_monthly.select('NDWI').mean()
-    col_max_monthly_median_ndwi = col_monthly.select('NDWI').max()
-    col_min_monthly_median_ndwi = col_monthly.select('NDWI').min()
-    col_std_dev_monthly_median_ndwi = col_monthly.select('NDWI').reduce(ee.Reducer.stdDev())
+        col_tc_mean = tc.mean().regexpRename('(.*)', '$1_mean', False)
+        col_tc_median = tc.median().regexpRename('(.*)', '$1_median', False)
+        col_tc_min = tc.min().regexpRename('(.*)', '$1_min', False)
+        col_tc_max = tc.max().regexpRename('(.*)', '$1_max', False)
+        col_tc_p85 = tc.reduce(ee.Reducer.percentile([85]))
+        col_tc_p15 = tc.reduce(ee.Reducer.percentile([15]))
+        col_tc_std_dev = tc.reduce(ee.Reducer.stdDev())
 
-    col_mean_monthly_median_wgi = col_monthly.select('WGI').mean()
-    col_max_monthly_median_wgi = col_monthly.select('WGI').max()
-    col_min_monthly_median_wgi = col_monthly.select('WGI').min()
-    col_std_dev_monthly_median_wgi = col_monthly.select('WGI').reduce(ee.Reducer.stdDev())
+        feature_data = ee.ImageCollection(
+                [
+                    col_mean,
+                    col_median,
+                    col_max,
+                    col_min,
+                    col_p85,
+                    col_p15,
+                    col_std_dev,
+                    col_tc_mean,
+                    col_tc_median,
+                    col_tc_min,
+                    col_tc_max,
+                    col_tc_p85,
+                    col_tc_p15,
+                    col_tc_std_dev,
+                    mti.rename('MTI'),
+                    slope
+                ]
+        )
+    else:
 
-    col_mean_monthly_median_evi = col_monthly.select('EVI').mean()
-    col_max_monthly_median_evi = col_monthly.select('EVI').max()
-    col_min_monthly_median_evi = col_monthly.select('EVI').min()
-    col_std_dev_monthly_median_evi = col_monthly.select('EVI').reduce(ee.Reducer.stdDev())
+        def rename_all_bands(image):
+            month = image.get('month')
+            stat = image.get('stat')
+            new_name = ee.String('$1_').cat(stat).cat('_').cat(month)
+            return image.regexpRename('(.*)', new_name, False)
 
-    col_mean_monthly_median_savi = col_monthly.select('SAVI').mean()
-    col_max_monthly_median_savi = col_monthly.select('SAVI').max()
-    col_min_monthly_median_savi = col_monthly.select('SAVI').min()
-    col_std_dev_monthly_median_savi = col_monthly.select('SAVI').reduce(ee.Reducer.stdDev())
-
-    col_mean_monthly_mean_ndbi = col_monthly.select('NDBI').mean()
-    col_max_monthly_median_ndbi = col_monthly.select('NDBI').max()
-    col_min_monthly_median_ndbi = col_monthly.select('NDBI').min()
-
-    col_mean_monthly_median_ndwi_waterbodies = col_monthly.select('NDWBI').mean()
-    col_max_monthly_median_ndwi_waterbodies = col_monthly.select('NDWBI').max()
-    col_min_monthly_median_ndwi_waterbodies = col_monthly.select('NDWBI').min()
-
-    # join all the feature data into one list
-    feature_bands = [
-        col_mean_monthly_median_red,
-        col_mean_monthly_median_green,
-        col_mean_monthly_median_blue,
-        col_mean_monthly_median_nir,
-        col_mean_monthly_median_swir_1,
-        col_min_monthly_median_gcvi.rename('GCVI_min'),
-        col_mean_monthly_median_gcvi.rename('GCVI_mean'),
-        col_max_monthly_median_gcvi.rename('GCVI_max'),
-        col_min_monthly_median_ndvi.rename('NDVI_min'),
-        col_mean_monthly_median_ndvi.rename('NDVI_mean'),
-        col_max_monthly_median_ndvi.rename('NDVI_max'),
-        col_min_monthly_median_ndwi.rename('NDWI_min'),
-        col_mean_monthly_median_ndwi.rename('NDWI_mean'),
-        col_max_monthly_median_ndwi.rename('NDWI_max'),
-        col_min_monthly_median_wgi.rename('WGI_min'),
-        col_mean_monthly_median_wgi.rename('WGI_mean'),
-        col_max_monthly_median_wgi.rename('WGI_max'),
-        col_min_monthly_median_ndwi_waterbodies.rename('NDWBI_min'),
-        col_mean_monthly_median_ndwi_waterbodies.rename('NDWBI_mean'),
-        col_max_monthly_median_ndwi_waterbodies.rename('NDWBI_max'),
-        col_min_monthly_median_ndbi.rename('NDBI_min'),
-        col_mean_monthly_mean_ndbi.rename('NDBI_mean'),
-        col_max_monthly_median_ndbi.rename('NDBI_max'),
-        col_min_monthly_median_evi.rename('EVI_min'),
-        col_mean_monthly_median_evi.rename('EVI_mean'),
-        col_max_monthly_median_evi.rename('EVI_max'),
-        col_min_monthly_median_savi.rename('SAVI_min'),
-        col_mean_monthly_median_savi.rename('SAVI_mean'),
-        col_max_monthly_median_savi.rename('SAVI_max'),
-        col_std_dev_monthly_median_ndvi.rename('NDVI_std'),
-        col_std_dev_monthly_median_gcvi.rename('GCVI_std'),
-        col_std_dev_monthly_median_ndwi.rename('NDWI_std'),
-        col_std_dev_monthly_median_wgi.rename('WGI_std'),
-        col_std_dev_monthly_median_evi.rename('EVI_std'),
-        col_std_dev_monthly_median_savi.rename('SAVI_std'),
-        mti.rename('MTI'),
-        slope
-    ]
+        feature_data = col.map(rename_all_bands)
 
     # flatten all the maps to a single GEE image
-    crop_data_min_mean_max = ee.ImageCollection(feature_bands).toBands().set('sensor', sensor).set('scale', scale)
+    # crop_data_min_mean_max = ee.ImageCollection(feature_bands).toBands().set('sensor', sensor).set('scale', scale)
+    feature_data = feature_data.toBands().set(
+        'sensor', sensor).set(
+        'scale', scale).set(
+        'start_date', begin).set(
+        'end_date', end).set(
+        'aoi', aoi_name)
 
-    if custom_name is not None:
-        asset_id = f"data/{aoi_name}/{sensor}/feature_data_lda_{aoi_name}_{custom_name}"
+    if custom_name:
+        asset_id = f"data/{aoi_name}/{sensor}/{creation_method}/feature_data_{aoi_name}_{custom_name}"
+        feature_data.set('name', custom_name)
     else:
-        asset_id = f"data/{aoi_name}/{sensor}/feature_data_lda_{aoi_name}_{year_string}"
+        asset_id = f"data/{aoi_name}/{sensor}/{creation_method}/feature_data_{aoi_name}_{year_string}"
+        feature_data.set('name', year_string)
 
     try:
         task = export_to_asset(  # Export to the GEE account of the user
-            asset=crop_data_min_mean_max,
+            asset=feature_data,
             asset_type='image',
             asset_id=asset_id,
             region=aoi_coordinates,
@@ -204,8 +213,7 @@ def take_strat_sample(
 
         :param calibration_maps: Dictionary containing calibration maps loaded as Earth Engine Image objects
         :param feature_data: Collection of images containing the feature data for classification
-        :param lc_classes: A list containing the pixel values/label representing the target land cover classes in
-        the calibration maps
+        :param lc_classes: dict containing the calibration classes to sample
         :param aoi: GEE FeatureCollection containing the vector of the area of interest for classification, this will be
          used to mask any pixels outside of the area of interest
         :param samplesize: Number of samples to take per class
@@ -221,14 +229,21 @@ def take_strat_sample(
         :return: export task, EE Image containing the masked patches, EE image containing the patches
         """
     sample_collection = None
+    new_class_values = {}
 
     for key in calibration_maps:
         lc_map = calibration_maps[key]
-        land_areas_for_sampling = ee.Image(1)  # Empty image
+        land_areas_for_sampling = ee.Image(0)  # Empty image
 
-        for ind, lc_class in enumerate(lc_classes):
+        pix_val = 1
+
+        for lc_class, class_values in lc_classes.items():
             # Paints the areas for each of the specified land cover classes to sample on the empty image
-            land_areas_for_sampling = land_areas_for_sampling.where(lc_map.eq(lc_class), 2)
+            for cal_lc_val in class_values:
+                land_areas_for_sampling = land_areas_for_sampling.where(lc_map.eq(cal_lc_val), pix_val)
+
+            new_class_values[pix_val] = lc_class
+            pix_val += 1
 
         land_areas_for_sampling = land_areas_for_sampling.clip(aoi).reproject(feature_data[key].projection())
 
@@ -237,8 +252,8 @@ def take_strat_sample(
         # Removes smaller land cover patches based on the number of connected pixels
         lc_patches = land_areas_for_sampling.where(training_regions_mask.eq(0), 0).rename(classband)
 
-        data_for_sampling = feature_data[key].addBands(
-            lc_patches)  # combine the feature data and land cover patches into one image
+        # combine the feature data and land cover patches into one image
+        data_for_sampling = feature_data[key].addBands(lc_patches)
 
         sample = data_for_sampling.stratifiedSample(  # perform a stratified sample
             numPoints=samplesize,
@@ -253,6 +268,13 @@ def take_strat_sample(
         else:
             sample_collection = sample_collection.merge(sample)
 
+    def add_class_name(x):
+
+        name_dict = ee.Dictionary(new_class_values)
+        return ee.Feature(x).set('class', name_dict.get(ee.Number(ee.Feature(x).get('lc')).format())).copyProperties(x)
+
+    sample_collection = sample_collection.map(add_class_name)
+
     task = ee.batch.Export.table.toDrive(
         collection=sample_collection,
         description=file_name,
@@ -263,7 +285,12 @@ def take_strat_sample(
 
     return task, training_regions_mask, lc_patches
 
-def remove_outliers(df, bands_to_include, lower_quantile=0.05, upper_quantile=0.95):
+
+def remove_outliers(
+        df: pd.DataFrame,
+        bands_to_include: list['str'],
+        lower_quantile: float=0.05,
+        upper_quantile: float=0.95):
     """
     Removes the outliers from a pandas dataframe
     :param df: Pandas dataframe containing the data to remove
@@ -281,42 +308,6 @@ def remove_outliers(df, bands_to_include, lower_quantile=0.05, upper_quantile=0.
     return df
 
 
-def min_distance_classification(training, data, aoi, training_points=20000, scale=30, tilescale=4, classband='training'):
-    """
-    Function that samples training data and trains a Mahalanobis distance classifier with a regression output mode
-    and classifies the feature data provided
-
-    :param training: EE Image containing the areas with the target class
-    :param data:EE Image contaning the feature data for classification
-    :param aoi: GEE FeatureCollection containing the vector of the area of interest for classification, this will be
-     used to mask any pixels outside of the area of interest
-    :param training_points: Number of training points to sample
-    :param scale: A nominal scale in meters of the projection to sample in. Defaults to the scale of the first band
-     of the input image. Defaults to 30
-    :param tilescale: Scaling factor used to reduce aggregation tile size; using a larger tileScale (e.g. 2 or 4) may
-    enable computations that run out of memory with the default. Defaults to 4
-    :param classband: The name to be used the band containing the patches of the target classes. Defaults to 'training'
-    :return: EE Image containing the result of the Mahalanobis distance classification
-    """
-    bandnames = data.bandNames()
-
-    data = data.addBands(training)
-
-    training_data = data.stratifiedSample(
-        numPoints=training_points,
-        classBand=classband,
-        scale=scale,
-        region=aoi.geometry(),
-        tileScale=tilescale
-    ).filter(ee.Filter.neq(classband, 0))
-
-    distance_classifier = ee.Classifier.minimumDistance(metric='mahalanobis').train(
-        features=training_data,
-        classProperty=classband,
-        inputProperties=bandnames
-    ).setOutputMode('REGRESSION')
-
-    return data.classify(distance_classifier).rename('classification')
 
 
 def random_forest(training, data, aoi, training_points=20000, scale=30, tilescale=4, classband='training', trees=500, min_leaf_pop=10):
@@ -363,7 +354,6 @@ def random_forest(training, data, aoi, training_points=20000, scale=30, tilescal
     return result
 
 
-
 def perform_lda_scaling(data, intercept, coefficients, threshold, gt=True, min_connected_pixels=10):
     transformed_features = {}
     for ind, row in coefficients.iterrows():
@@ -391,3 +381,24 @@ def perform_lda_scaling(data, intercept, coefficients, threshold, gt=True, min_c
 
     return final_img
 
+
+if __name__ == '__main__':
+    aoi = ee.Geometry.Polygon(
+        [[[-1.4572492923062508, 37.93351644908467],
+          [-1.4572492923062508, 37.51205504786782],
+          [-0.6401411380093758, 37.51205504786782],
+          [-0.6401411380093758, 37.93351644908467]]],
+        None,
+        False
+    )
+
+    task = create_feature_data(
+        (f'{2020}-04-01', f'{2020}-10-01'),
+        aoi,
+        aoi_name='undefined',
+        sensor='sentinel',
+        custom_name=None,
+        overwrite=False
+    )
+
+    track_task(task)

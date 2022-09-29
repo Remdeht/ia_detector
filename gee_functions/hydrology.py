@@ -5,7 +5,7 @@ Functions for topographic indices
 import ee
 
 
-def add_mti():
+def add_mti() -> ee.Image:
     """
     Calculated the MTI based on the slope and the hydrosheds 3 arcsec flow accumulation map. See 'An automated procedure
      for the detection of flood prone areas: r. hazard. flood' by Di Leo et al. 2011 for more information.

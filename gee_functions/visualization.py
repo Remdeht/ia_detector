@@ -2,11 +2,17 @@
 Functions for visualizing EE layers
 """
 
+import ee
 import folium
 from branca.element import Template, MacroElement
 
 
-def create_folium_map(images=None, name=None, coords=[20, 0], zoom=6, height='100%'):
+def create_folium_map(
+        images: dict[str, str] = None,
+        name: str = None,
+        coords: list[int, int] = [20, 0],
+        zoom: int = 6,
+        height: str = '100%') -> folium.Map:
     """
     Creates a html file containing a folium map visualizing EE image
 
@@ -54,14 +60,20 @@ def create_folium_map(images=None, name=None, coords=[20, 0], zoom=6, height='10
     return folium_map
 
 
-def vis_params_cp(band, min_val, max_val, palette=None, opacity=1):
+def vis_params_cp(
+        band: str,
+        min_val: int | float,
+        max_val: int | float,
+        palette: list[str] = None,
+        opacity: int = 1):
     """
     Returns a dictionary for the visual parameters for a single band color palette representation
 
     :param band: name of the band to visualize
     :param min_val: minimum value
     :param max_val: maximum value
-    :param palette: optional, color palette vor visualization. Default is red yellow green.
+    :param palette: optional, color palette for visualization. Default is red yellow green.
+    :param opacity: opacity of the layer
     :return: returns a dictionary containing parameters for visualization
     """
     if palette is None:
@@ -77,27 +89,36 @@ def vis_params_cp(band, min_val, max_val, palette=None, opacity=1):
     return params
 
 
-def vis_params_rgb(bands=['R', 'G', 'B'], minVal=0, maxVal=3000, gamma=1.4, opacity=None):
+def vis_params_rgb(
+        bands: list[int, int, int] = None,
+        min_val: int|float = 0,
+        max_val: int|float = 3000,
+        gamma: float = 1.4,
+        opacity: float = None):
     """
     Returns visual parameters for a RGB visualization
     :param bands: list of RGB bandnames, defaults to ['R', 'G', 'B']
-    :param minVal: value to map to RGB value 0, defaults to 0
-    :param maxVal: value to map to RGB8 value 255, defaults to 3000
+    :param min_val: value to map to RGB value 0, defaults to 0
+    :param max_val: value to map to RGB8 value 255, defaults to 3000
     :param gamma: gamma value, defaults to 1.4
     :param opacity: opacity value, defaults to None
     :return: dictionary containing the parameters for visualization
     """
+
+    if bands is None:
+        bands = ['R', 'G', 'B']
+
     params = {
         'bands': bands,
-        'min': minVal,
-        'max': maxVal,
+        'min': min_val,
+        'max': max_val,
         'gamma': gamma,
         'opacity': opacity
     }
     return params
 
 
-def vis_irrigated_area_map(band=['ia_year']):
+def vis_irrigated_area_map(band: list[str] = ['ia_year']):
     """
     Returns dictionary containing visual parameters for the visualization of the irrigated area overview map
 
@@ -108,7 +129,7 @@ def vis_irrigated_area_map(band=['ia_year']):
         'bands': band,
         'min': 0,
         'max': 7,
-        'palette':[
+        'palette': [
             '000000',
             '20b407',
             '211cff',
@@ -122,7 +143,7 @@ def vis_irrigated_area_map(band=['ia_year']):
     return params
 
 
-def vis_rf_classification(band=['rf_all_classes']):
+def vis_rf_classification(band: list[str] =['rf_all_classes']):
     """
     Returns dictionary containing visual parameters for the visualization of land cover maps obtained from random forest
     classification
@@ -151,7 +172,7 @@ def vis_rf_classification(band=['rf_all_classes']):
     return params
 
 
-def vis_params_ndvi(band=["NDVI"]):
+def vis_params_ndvi(band: list[str] =["NDVI"]):
     """
     Return the visual parameters for NDVI maps, representing the values with a red to green color palette
     """
@@ -164,7 +185,8 @@ def vis_params_ndvi(band=["NDVI"]):
     return params
 
 
-def create_categorical_legend(map, palette, classnames):
+def create_categorical_legend(map: folium.Map, classnames):
+    # TODO combine the last two parameters into a dict
     """
     Function to create and add a categorical legend to a folium map.
 
@@ -275,7 +297,7 @@ def create_categorical_legend(map, palette, classnames):
     return map.get_root().add_child(macro)  # add element to the map and return the map
 
 
-def create_hectares_label(map, hectares):
+def create_hectares_label(map: folium.Map, hectares: int):
     """
     Function to create and add a categorical legend to a folium map.
 
@@ -378,5 +400,3 @@ def create_hectares_label(map, hectares):
     macro._template = Template(template)  # create an element
 
     return map.get_root().add_child(macro)  # add element to the map and return the map
-
-

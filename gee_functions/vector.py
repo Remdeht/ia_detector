@@ -4,7 +4,7 @@ Functions related to EE vectors
 import ee
 
 
-def add_area(vector):
+def add_area(vector: ee.FeatureCollection) -> ee.FeatureCollection:
     """
     Function to add area as a property to a GEE feature collection representing a polygon or multipolygon.
 
@@ -15,7 +15,12 @@ def add_area(vector):
     return vector.set('area', area)
 
 
-def raster_to_vector(image, region, scale=30, max_pixels=1e8, tile_scale=1):
+def raster_to_vector(
+        image: ee.Image,
+        region: ee.FeatureCollection,
+        scale: int = 30,
+        max_pixels: int = 1e8,
+        tile_scale: int = 1) -> ee.FeatureCollection:
     """
     Wrapper for the EE ReduceToVector function that converts a raster object to a vector. Removes features belonging to
     pixels with the value 0 by default.
@@ -40,7 +45,7 @@ def raster_to_vector(image, region, scale=30, max_pixels=1e8, tile_scale=1):
     return vector
 
 
-def split_region(region):
+def split_region(region: ee.FeatureCollection | ee.Feature) -> dict[str, ee.Geometry]:
     """
     Splits a EE FeatureCollection/Feature into four equal parts
     :param region: EE FeatureCollection/Feature to split

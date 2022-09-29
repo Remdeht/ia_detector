@@ -3,11 +3,19 @@ All the functions used in the classification process of the irrigated area detec
 """
 
 import ee
-from . import landsat
-from . import sentinel
-from . import indices
-from .export import export_to_asset
-from .hydrology import add_mti
+
+try:
+    import landsat
+    import sentinel
+    import indices
+    from export import export_to_asset
+    from hydrology import add_mti
+except ImportError:
+    from . import landsat
+    from . import sentinel
+    from . import indices
+    from .export import export_to_asset
+    from .hydrology import add_mti
 
 
 def get_fraction_training_pixels(obj):
@@ -21,171 +29,179 @@ def get_count(obj):
     return ee.Number(ee.Dictionary(obj).get('count'))
 
 
-def create_features(year, aoi, aoi_name='undefined', sensor='landsat'):
+def create_feature_data(
+        date_range: tuple,
+        aoi: ee.FeatureCollection,
+        creation_method: str='all_scenes_reduced',
+        aoi_name: str = 'undefined',
+        sensor: str = 'landsat',
+        custom_name: str = None,
+        overwrite: bool = False) -> ee.batch.Task or bool:
     """
     Creates and exports the feature data for classification to the GEE as two image assets (feature data for summer and
-     winter).
+    winter).
 
-    :param year: tuple containing the begin and end date for the selection of imagery. Date format: YYYY-MM-DD.
-    :param aoi: GEE FeatureCollection of the area of interest
+    :param date_range: tuple containing the begin and end date for the selection of imagery. Date format: YYYY-MM-DD.
+    :param aoi: EE FeatureCollection of the vector representing the area of interest
     :param aoi_name: name of the aoi, this is used for the naming of the results
     :param sensor: string indicating which satellite to use, landsat or sentinel
-    :param gap_fill: boolean indicating whether to use histogram matching fill algorithm
+    :param custom_name: Optional, provide a name for the asset. If no custom name is given the year of the start date
+    will be used
+    :param overwrite: Optional, provide a name for the asset. If no custom name is given the year of the start date
+    will be used
     :return: dictionary containing two GEE export tasks
     """
 
     # Extract the date range for the period from the tuple
-    begin = year[0]
-    end = year[1]
+    begin = date_range[0]
+    end = date_range[1]
 
     year_string = end[0:4]  # string with the year for the naming of the assets
 
-    aoi_coordinates = aoi.geometry().bounds().getInfo()['coordinates']  # aoi coordinates
+    aoi_info = aoi.geometry().getInfo()
+
+    if 'coordinates' in aoi_info.keys():
+        aoi_coordinates = aoi_info['coordinates']  # aoi coordinates
+
+        if len(aoi_coordinates) > 1:
+            aoi_coordinates = ee.Geometry.MultiPolygon(aoi_coordinates)
+        else:
+            aoi_coordinates = ee.Geometry.Polygon(aoi_coordinates)
+
+    else:
+        return None
 
     if sensor == 'landsat':
         scale = 30
         # Retrieve landsat 5 and 7 imagery for the period and merge them together
-        ls_5 = landsat.get_ls5_image_collection(begin, end, aoi)
-        ls_7 = landsat.get_ls7_image_collection(begin, end, aoi)
-        ls_8 = landsat.get_ls8_image_collection(begin, end, aoi)
+        ls_5 = landsat.get_ls_image_collection('5', begin, end, aoi)
+        ls_7 = landsat.get_ls_image_collection('7', begin, end, aoi)
+        ls_8 = landsat.get_ls_image_collection('8', begin, end, aoi)
+        ls_9 = landsat.get_ls_image_collection('9', begin, end, aoi)
 
-        col = ls_5.merge(ls_7).merge(ls_8).map(landsat.remove_edges)  # merge all the landsat scenes into single col.
+        col = ls_5.merge(ls_7).merge(ls_8).merge(ls_9).map(
+            landsat.remove_edges)  # merge all the landsat scenes into single col.
 
-        # create monthly band composites
-        col_monthly = landsat.create_monthly_index_images(
-            image_collection=col,
-            start_date=begin,
-            end_date=end,
-            aoi=aoi,
-            stats=['median'],
-        )
+        if creation_method in ['monthly_composites_reduced', 'monthly_composites']:
+            # create monthly band composites
+            col = landsat.create_monthly_index_images(
+                image_collection=col,
+                start_date=begin,
+                end_date=end,
+                aoi=aoi,
+                stats=['median'],
+            )
 
     elif sensor == 'sentinel':
         scale = 10
         col = sentinel.get_s2_image_collection(begin, end, aoi)
-        col_monthly = sentinel.create_monthly_index_images(
-            image_collection=col,
-            start_date=begin,
-            end_date=end,
-            aoi=aoi,
-            stats=['median'],
+
+        # col = sentinel.create_monthly_index_images(
+        #     image_collection=col,
+        #     start_date=begin,
+        #     end_date=end,
+        #     aoi=aoi,
+        #     stats=['median'],
+        # )
+    else:
+        raise ValueError(f'Provided unknown sensor: {sensor}')
+
+    col = col.select(['R_*', 'G_*', 'B_*', 'NIR_*', 'SWIR_*'])  # Select these RGB, NIR and SWIR bands
+
+    col = col.map(indices.add_gcvi).filter(
+        ee.Filter.listContains('system:band_names', 'GCVI')) \
+        .map(indices.add_ndvi).filter(ee.Filter.listContains('system:band_names', 'NDVI')) \
+        .map(indices.add_ndwi).filter(ee.Filter.listContains('system:band_names', 'NDWI')) \
+        .map(indices.add_ndwi_mcfeeters).filter(ee.Filter.listContains('system:band_names', 'NDWBI')) \
+        .map(indices.add_ndbi).filter(ee.Filter.listContains('system:band_names', 'NDBI')) \
+        .map(indices.add_wgi).filter(ee.Filter.listContains('system:band_names', 'WGI')) \
+        .map(indices.add_evi).filter(ee.Filter.listContains('system:band_names', 'EVI')) \
+        .map(indices.add_savi).filter(ee.Filter.listContains('system:band_names', 'SAVI'))
+
+    mti = add_mti()
+    slope = ee.Terrain.slope(ee.Image("USGS/SRTMGL1_003").select('elevation')).rename('slope')
+
+    tc = ee.ImageCollection('IDAHO_EPSCOR/TERRACLIMATE').select(['pdsi', 'soil', 'pr']).filter(
+        ee.Filter.date(begin, end))
+
+    if creation_method in ['monthly_composites_reduced', 'all_scenes_reduced']:
+
+        col_mean = col.mean().regexpRename('(.*)', '$1_mean', False)
+        col_median = col.median().regexpRename('(.*)', '$1_median', False)
+        col_min = col.min().regexpRename('(.*)', '$1_min', False)
+        col_max = col.max().regexpRename('(.*)', '$1_max', False)
+        col_p85 = col.reduce(ee.Reducer.percentile([85]))
+        col_p15 = col.reduce(ee.Reducer.percentile([15]))
+        col_std_dev = col.reduce(ee.Reducer.stdDev())
+
+        col_tc_mean = tc.mean().regexpRename('(.*)', '$1_mean', False)
+        col_tc_median = tc.median().regexpRename('(.*)', '$1_median', False)
+        col_tc_min = tc.min().regexpRename('(.*)', '$1_min', False)
+        col_tc_max = tc.max().regexpRename('(.*)', '$1_max', False)
+        col_tc_p85 = tc.reduce(ee.Reducer.percentile([85]))
+        col_tc_p15 = tc.reduce(ee.Reducer.percentile([15]))
+        col_tc_std_dev = tc.reduce(ee.Reducer.stdDev())
+
+        feature_data = ee.ImageCollection(
+            [
+                col_mean,
+                col_median,
+                col_max,
+                col_min,
+                col_p85,
+                col_p15,
+                col_std_dev,
+                col_tc_mean,
+                col_tc_median,
+                col_tc_min,
+                col_tc_max,
+                col_tc_p85,
+                col_tc_p15,
+                col_tc_std_dev,
+                mti.rename('MTI'),
+                slope
+            ]
         )
+    else:
 
-    col_monthly = col_monthly.select(['R', 'G', 'B', 'NIR', 'SWIR'])  # Select these RGB, NIR and SWIR bands
+        def rename_all_bands(image):
+            month = image.get('month')
+            stat = image.get('stat')
+            new_name = ee.String('$1_').cat(stat).cat('_').cat(month)
+            return image.regexpRename('(.*)', new_name, False)
 
-    tasks = {}
+        feature_data = col.map(rename_all_bands)
 
-    for season in ['summer', 'winter']:
-        # Filter the monthly composites based on the season
-        if season == 'summer':
-            col_monthly_season = col_monthly.filter(ee.Filter.rangeContains('month', 4, 9))
-        elif season == 'winter':
-            early_filter = ee.Filter.rangeContains('month', 1, 3)
-            late_filter = ee.Filter.rangeContains('month', 10, 12)
-            col_monthly_season = col_monthly.filter(ee.Filter.Or(early_filter, late_filter))
+    # flatten all the maps to a single GEE image
+    # crop_data_min_mean_max = ee.ImageCollection(feature_bands).toBands().set('sensor', sensor).set('scale', scale)
+    feature_data = feature_data.toBands().set(
+        'sensor', sensor).set(
+        'scale', scale).set(
+        'start_date', begin).set(
+        'end_date', end).set(
+        'aoi', aoi_name)
 
-        # Calculate the spectral indices for each month based on the seasonal collection
-        col_monthly_season = col_monthly_season.map(indices.add_gcvi).filter(
-            ee.Filter.listContains('system:band_names', 'GCVI')) \
-            .map(indices.add_ndvi).filter(ee.Filter.listContains('system:band_names', 'NDVI')) \
-            .map(indices.add_ndwi).filter(ee.Filter.listContains('system:band_names', 'NDWI')) \
-            .map(indices.add_ndwi_mcfeeters).filter(ee.Filter.listContains('system:band_names', 'NDWBI')) \
-            .map(indices.add_ndbi).filter(ee.Filter.listContains('system:band_names', 'NDBI')) \
-            .map(indices.add_wgi).filter(ee.Filter.listContains('system:band_names', 'WGI'))
+    if custom_name:
+        asset_id = f"data/{aoi_name}/{sensor}/{creation_method}/feature_data_{aoi_name}_{custom_name}"
+        feature_data.set('name', custom_name)
+    else:
+        asset_id = f"data/{aoi_name}/{sensor}/{creation_method}/feature_data_{aoi_name}_{year_string}"
+        feature_data.set('name', year_string)
 
-        # add the Modified Topographic Index and the Slope for the area of interest
-        mti = add_mti().clip(aoi)
-        slope = ee.Terrain.slope(ee.Image("USGS/SRTMGL1_003").select('elevation')).clip(aoi).rename('slope')
+    try:
+        task = export_to_asset(  # Export to the GEE account of the user
+            asset=feature_data,
+            asset_type='image',
+            asset_id=asset_id,
+            region=aoi_coordinates,
+            scale=scale,
+            overwrite=overwrite
+        )
+    except FileExistsError as e:  # if the asset already exists the user is notified and no error is generated
+        print(e)
+        task = True
 
-        # generate median band composites for each season
-        col_mean_monthly_median_blue = col_monthly_season.select('B').median().rename('blue')
-        col_mean_monthly_median_green = col_monthly_season.select('G').median().rename('green')
-        col_mean_monthly_median_red = col_monthly_season.select('R').median().rename('red')
-        col_mean_monthly_median_nir = col_monthly_season.select('NIR').median().rename('nir')
-        col_mean_monthly_median_swir_1 = col_monthly_season.select('SWIR').median().rename('swir1')
-
-        # generate the pixel statistic maps for the spectral indices
-        col_mean_monthly_median_ndvi = col_monthly_season.select('NDVI').mean()
-        col_max_monthly_median_ndvi = col_monthly_season.select('NDVI').max()
-        col_min_monthly_median_ndvi = col_monthly_season.select('NDVI').min()
-        col_std_dev_monthly_median_ndvi = col_monthly_season.select('NDVI').reduce(ee.Reducer.stdDev())
-
-        col_mean_monthly_median_gcvi = col_monthly_season.select('GCVI').mean()
-        col_max_monthly_median_gcvi = col_monthly_season.select('GCVI').max()
-        col_min_monthly_median_gcvi = col_monthly_season.select('GCVI').min()
-        col_std_dev_monthly_median_gcvi = col_monthly_season.select('GCVI').reduce(ee.Reducer.stdDev())
-
-        col_mean_monthly_median_ndwi = col_monthly_season.select('NDWI').mean()
-        col_max_monthly_median_ndwi = col_monthly_season.select('NDWI').max()
-        col_min_monthly_median_ndwi = col_monthly_season.select('NDWI').min()
-        col_std_dev_monthly_median_ndwi = col_monthly_season.select('NDWI').reduce(ee.Reducer.stdDev())
-
-        col_mean_monthly_median_wgi = col_monthly_season.select('WGI').mean()
-        col_max_monthly_median_wgi = col_monthly_season.select('WGI').max()
-        col_min_monthly_median_wgi = col_monthly_season.select('WGI').min()
-        col_std_dev_monthly_median_wgi = col_monthly_season.select('WGI').reduce(ee.Reducer.stdDev())
-
-        col_mean_monthly_mean_ndbi = col_monthly_season.select('NDBI').mean()
-        col_max_monthly_median_ndbi = col_monthly_season.select('NDBI').max()
-        col_min_monthly_median_ndbi = col_monthly_season.select('NDBI').min()
-
-        col_mean_monthly_median_ndwi_waterbodies = col_monthly_season.select('NDWBI').mean()
-        col_max_monthly_median_ndwi_waterbodies = col_monthly_season.select('NDWBI').max()
-        col_min_monthly_median_ndwi_waterbodies = col_monthly_season.select('NDWBI').min()
-
-        # join all the feature data into one list
-        feature_bands = [
-            col_mean_monthly_median_red,
-            col_mean_monthly_median_green,
-            col_mean_monthly_median_blue,
-            col_mean_monthly_median_nir,
-            col_mean_monthly_median_swir_1,
-            col_min_monthly_median_gcvi.rename('GCVI_min'),
-            col_mean_monthly_median_gcvi.rename('GCVI_mean'),
-            col_max_monthly_median_gcvi.rename('GCVI_max'),
-            col_min_monthly_median_ndvi.rename('NDVI_min'),
-            col_mean_monthly_median_ndvi.rename('NDVI_mean'),
-            col_max_monthly_median_ndvi.rename('NDVI_max'),
-            col_min_monthly_median_ndwi.rename('NDWI_min'),
-            col_mean_monthly_median_ndwi.rename('NDWI_mean'),
-            col_max_monthly_median_ndwi.rename('NDWI_max'),
-            col_min_monthly_median_wgi.rename('WGI_min'),
-            col_mean_monthly_median_wgi.rename('WGI_mean'),
-            col_max_monthly_median_wgi.rename('WGI_max'),
-            col_min_monthly_median_ndwi_waterbodies.rename('NDWBI_min'),
-            col_mean_monthly_median_ndwi_waterbodies.rename('NDWBI_mean'),
-            col_max_monthly_median_ndwi_waterbodies.rename('NDWBI_max'),
-            col_min_monthly_median_ndbi.rename('NDBI_min'),
-            col_mean_monthly_mean_ndbi.rename('NDBI_mean'),
-            col_max_monthly_median_ndbi.rename('NDBI_max'),
-            col_std_dev_monthly_median_ndvi.rename('NDVI_std'),
-            col_std_dev_monthly_median_gcvi.rename('GCVI_std'),
-            col_std_dev_monthly_median_ndwi.rename('NDWI_std'),
-            col_std_dev_monthly_median_wgi.rename('WGI_std'),
-            mti.rename('MTI'),
-            slope
-        ]
-
-        # flatten all the maps to a single GEE image
-        crop_data_min_mean_max = ee.ImageCollection(feature_bands).toBands().set('sensor', sensor).set('scale', scale)
-
-        try:
-            task = export_to_asset(  # Export to the GEE account of the user
-                asset=crop_data_min_mean_max,
-                asset_type='image',
-                asset_id=f"data/{aoi_name}/{sensor}/crop_data_{season}_{aoi_name}_{year_string}",
-                region=aoi_coordinates,
-                scale=scale
-            )
-        except FileExistsError as e:  # if the asset already exists the user is notified and no error is generated
-            print(e)
-            tasks[season] = True
-        else:
-            # if export is started with no problems at the client side a GEE task is returned and added to a dictionary
-            # combining the export tasks for each season
-            tasks[season] = task
-
-    return tasks  # returns the dictionary with the export tasks
+    return task  # returns the dictionary with the export tasks
 
 
 def create_training_areas(aoi, data_loc, aoi_name, year_string, clf_folder=None, hb=True, ft=True):
@@ -214,7 +230,7 @@ def create_training_areas(aoi, data_loc, aoi_name, year_string, clf_folder=None,
 
     for season in ['summer', 'winter']:
 
-        if clf_folder is None:  #  sets the classification folder for export
+        if clf_folder is None:  # sets the classification folder for export
             loc = f"training_areas/{aoi_name}/training_areas_{season}_{aoi_name}_{year_string}"
         else:
             loc = f"training_areas/{aoi_name}/{clf_folder}/training_areas_{season}_{aoi_name}_{year_string}"
@@ -484,8 +500,24 @@ def create_training_areas(aoi, data_loc, aoi_name, year_string, clf_folder=None,
     return tasks
 
 
-def classify_irrigated_areas(input_features, training_areas, aoi, aoi_name, season, year, it_cl=1, ic_cl=2, clf_folder=None, filename=None,
-                             min_tp=1000, max_tp=60000, tile_scale=16, no_trees=500, bag_fraction=.5, vps=5, overwrite=False):
+def classify_irrigated_areas(
+        input_features: ee.Image,
+        training_areas: ee.Image,
+        aoi: ee.FeatureCollection,
+        aoi_name: str,
+        season: str,
+        year: int | str,
+        it_cl: int = 1,
+        ic_cl: int = 2,
+        clf_folder: str = None,
+        filename: str = None,
+        min_tp: int = 1000,
+        max_tp: int = 60000,
+        tile_scale: int = 16,
+        no_trees: int = 500,
+        bag_fraction: float = .5,
+        vps: int = 5,
+        overwrite: bool = False):
     """
     Performs a RF classification and postprocessing of irrigated land areas as determined by the RF.
 
@@ -512,9 +544,9 @@ def classify_irrigated_areas(input_features, training_areas, aoi, aoi_name, seas
     # sets up the location where the results of the classification are saved.
     if clf_folder is None and filename is None:  # in case no folder/custom filename have been given
         loc = f"results/random_forest/{aoi_name}/ia_random_forest_{no_trees}tr_{vps}vps_{int(bag_fraction * 100)}bf_{aoi_name}_{season}_{year}"
-    elif clf_folder is None: # only custom filename is given
+    elif clf_folder is None:  # only custom filename is given
         loc = f"results/random_forest/{aoi_name}/{filename}"
-    else: # only a folder is given
+    else:  # only a folder is given
         loc = f"results/random_forest/{aoi_name}/{clf_folder}/ia_random_forest_{no_trees}tr_{vps}vps_{int(bag_fraction * 100)}bf_{aoi_name}_{season}_{year}"
 
     class_property = 'training'  # bandname of the band containing the patches from which the training pixels are sampled
@@ -525,9 +557,9 @@ def classify_irrigated_areas(input_features, training_areas, aoi, aoi_name, seas
     training_areas_masked = training_areas.select('training').updateMask(training_areas.select('training').gt(0))
 
     # check the class values present in the training image, in case thresholding did not separate patches for a lc class
-    # the RF classifier does not consider  it for trainning
-    freqHist = training_areas_masked.reduceRegion(ee.Reducer.frequencyHistogram(), aoi, 30, maxPixels=1e15)
-    class_values = ee.Dictionary(freqHist.get('training')).keys().getInfo()  # gets the unique class labels
+    # the RF classifier does not consider  it for training
+    freq_histogram = training_areas_masked.reduceRegion(ee.Reducer.frequencyHistogram(), aoi, 30, maxPixels=1e15)
+    class_values = ee.Dictionary(freq_histogram.get('training')).keys().getInfo()  # gets the unique class labels
     class_values = [int(x) for x in class_values]  # converts the strings to int
 
     min_training_pixels = ee.Array([min_tp for i in range(0, len(class_values))])  # Array with min
@@ -568,15 +600,15 @@ def classify_irrigated_areas(input_features, training_areas, aoi, aoi_name, seas
 
     # create and train classifier for the land cover classification
     classifier_multiclass = ee.Classifier.smileRandomForest(
-            no_trees,
-            variablesPerSplit=vps,
-            bagFraction=bag_fraction,
-            minLeafPopulation=10,
-        ).train(
-            training_multiclass,
-            class_property,
-            bands
-        )
+        no_trees,
+        variablesPerSplit=vps,
+        bagFraction=bag_fraction,
+        minLeafPopulation=10,
+    ).train(
+        training_multiclass,
+        class_property,
+        bands
+    )
 
     # get the map indicating forest loss from the Hansen Global Forest Change Map.
     forest_change = ee.Image("UMD/hansen/global_forest_change_2018_v1_6").select('lossyear').clip(aoi)
@@ -606,14 +638,14 @@ def classify_irrigated_areas(input_features, training_areas, aoi, aoi_name, seas
     irrigated_areas = irrigated_areas.where(mask_small_patches_removed.eq(0), 0)
 
     # fill small isolated pixels in irrigated land areas
-    non_ia_connected_pixels = irrigated_areas.gt(0).where(mask_small_patches_removed.eq(0), 0).Not()\
+    non_ia_connected_pixels = irrigated_areas.gt(0).where(mask_small_patches_removed.eq(0), 0).Not() \
         .connectedPixelCount(8).reproject(input_features.projection()).lte(5)
 
     mean_ia = irrigated_areas.updateMask(irrigated_areas.gt(0)).focal_mean(
-        kernelType= 'square',
-        radius= 2.5).reproject(input_features.projection())
+        kernelType='square',
+        radius=2.5).reproject(input_features.projection())
 
-    mean_ia_assigned = mean_ia.where(mean_ia.gte(1.5), 2).where(mean_ia.lt(1.5).And(mean_ia.gt(0)), 1)\
+    mean_ia_assigned = mean_ia.where(mean_ia.gte(1.5), 2).where(mean_ia.lt(1.5).And(mean_ia.gt(0)), 1) \
         .updateMask(non_ia_connected_pixels)
 
     irrigated_areas = irrigated_areas.where(mean_ia_assigned.eq(2), 2).where(mean_ia_assigned.eq(1), 1)
@@ -625,7 +657,20 @@ def classify_irrigated_areas(input_features, training_areas, aoi, aoi_name, seas
         irrigated_areas.rename('irrigated_area'),
         irrigated_area_classified_multiclass.rename('rf_all_classes'),
         input_features.select('training'),
-    ]).toBands().regexpRename('([0-9]{1,3}_)', '').set('scale', scale)
+    ]).toBands().regexpRename('([0-9]{1,3}_)', '').set(
+        'area_of_interest', aoi_name).set(
+        'number_or_trees', no_trees).set(
+        'variables_per_split', vps).set(
+        'bagging_fraction', bag_fraction).set(
+        'scale', scale)
+
+    class_points = class_points.getInfo()
+
+    for ind, val in enumerate(class_values):
+        irrigated_results = irrigated_results.set(
+            f'training_pixels_cl_{class_values[ind]}',
+            class_points[ind]
+        )
 
     try:  # export the results to asset
         task = export_to_asset(
@@ -643,8 +688,17 @@ def classify_irrigated_areas(input_features, training_areas, aoi, aoi_name, seas
         return task, classifier_multiclass
 
 
-def join_seasonal_irrigated_areas(irrigated_area_summer, irrigated_area_winter, aoi_name, year, aoi,
-                                  export_method='drive', clf_folder=None, filename=None, scale=30, overwrite=False):
+def join_seasonal_irrigated_areas(
+        irrigated_area_summer: ee.Image,
+        irrigated_area_winter: ee.Image,
+        aoi_name: str,
+        year: int | str,
+        aoi: ee.FeatureCollection,
+        export_method: str = 'drive',
+        clf_folder: str = None,
+        filename: str = None,
+        scale: int = 30,
+        overwrite: bool = False) -> ee.batch.Task | bool:
     """
     Combines the irrigated land areas determined by the RF for the summer and winter season into a single overview map.
 
@@ -672,8 +726,12 @@ def join_seasonal_irrigated_areas(irrigated_area_summer, irrigated_area_winter, 
     aoi_coordinates = aoi.geometry().bounds().getInfo()['coordinates']  # coordinates of the aoi, needed for export
 
     # Get the irrigated areas from the classification results
-    summer = ee.Image().constant(1).where(irrigated_area_summer.eq(1), 3).where(irrigated_area_summer.eq(2), 2).reproject(irrigated_area_summer.projection())
-    winter = ee.Image().constant(1).where(irrigated_area_winter.eq(1), 4).where(irrigated_area_winter.eq(2), 5).reproject(irrigated_area_winter.projection())
+    summer = ee.Image().constant(1).where(irrigated_area_summer.eq(1), 3).where(irrigated_area_summer.eq(2),
+                                                                                2).reproject(
+        irrigated_area_summer.projection())
+    winter = ee.Image().constant(1).where(irrigated_area_winter.eq(1), 4).where(irrigated_area_winter.eq(2),
+                                                                                5).reproject(
+        irrigated_area_winter.projection())
 
     # multiply the seasonal irrigation maps with each other
     combined_irrigated_area_map = summer.multiply(winter)
@@ -722,3 +780,48 @@ def join_seasonal_irrigated_areas(irrigated_area_summer, irrigated_area_winter, 
             return True
         else:
             return task
+
+
+def min_distance_classification(
+        training: ee.Image,
+        data: ee.Image,
+        aoi: ee.FeatureCollection,
+        training_points: int = 20000,
+        scale: int = 30,
+        tilescale: int = 4,
+        classband: str = 'training') -> ee.batch.Task | bool:
+    """
+    Function that samples training data and trains a Mahalanobis distance classifier with a regression output mode
+    and classifies the feature data provided
+
+    :param training: EE Image containing the areas with the target class
+    :param data:EE Image contaning the feature data for classification
+    :param aoi: GEE FeatureCollection containing the vector of the area of interest for classification, this will be
+     used to mask any pixels outside of the area of interest
+    :param training_points: Number of training points to sample
+    :param scale: A nominal scale in meters of the projection to sample in. Defaults to the scale of the first band
+     of the input image. Defaults to 30
+    :param tilescale: Scaling factor used to reduce aggregation tile size; using a larger tileScale (e.g. 2 or 4) may
+    enable computations that run out of memory with the default. Defaults to 4
+    :param classband: The name to be used the band containing the patches of the target classes. Defaults to 'training'
+    :return: EE Image containing the result of the Mahalanobis distance classification
+    """
+    bandnames = data.bandNames()
+
+    data = data.addBands(training)
+
+    training_data = data.stratifiedSample(
+        numPoints=training_points,
+        classBand=classband,
+        scale=scale,
+        region=aoi.geometry(),
+        tileScale=tilescale
+    ).filter(ee.Filter.neq(classband, 0))
+
+    distance_classifier = ee.Classifier.minimumDistance(metric='mahalanobis').train(
+        features=training_data,
+        classProperty=classband,
+        inputProperties=bandnames
+    ).setOutputMode('REGRESSION')
+
+    return data.classify(distance_classifier).rename('classification')

@@ -3,9 +3,15 @@ Functions used for validation using validation polygons
 """
 
 import ee
+from gee_functions.constants import AOI
 
 
-def calc_area(image, region, scale=30, tile_scale=2, max_pixels=1e13):
+def calc_area(
+        image: ee.Image,
+        region: ee.FeatureCollection,
+        scale: int = 30,
+        tile_scale: int = 2,
+        max_pixels: int = 1e13):
     """
     Function to calculate the area of the objects on a binary map in hectares
     :param image: EE image with areas for which to calculate the area having values larger then 0
@@ -30,33 +36,37 @@ def calc_area(image, region, scale=30, tile_scale=2, max_pixels=1e13):
     return total_irrigated_area
 
 
-def convert_to_polygons(feat):
+def convert_to_polygons(feature: ee.Feature) -> ee.FeatureCollection:
     """
-    Converts a GEE Multipolygon Featurecollection into a FeatureCollection of separate polygons
+    Converts an EE Multipolygon Feature into a FeatureCollection of single polygons
     """
-    feat = ee.Feature(feat)
-    geometries = feat.geometry().geometries()
+    feature = ee.Feature(feature)
+    geometries = feature.geometry().geometries()
 
-    def poly(feat):
-        poly = ee.Geometry.Polygon(ee.Geometry(feat).coordinates())
-        return ee.Feature(poly).copyProperties(feat)
+    def to_poly(f):
+        poly = ee.Geometry.Polygon(ee.Geometry(f).coordinates())
+        return ee.Feature(poly).copyProperties(f)
 
-    extractPolys = ee.FeatureCollection(geometries.map(poly))
-    return extractPolys
+    return ee.FeatureCollection(geometries.map(to_poly))
 
 
-def buffer_polygon(ft):
+def buffer_polygon(feature: ee.Feature):
     """Applies a buffer to a polygon"""
-    return ft.buffer(-30, 1)
+    return feature.buffer(-30, 1)
 
 
-def add_area(ft):
-    "Add the area as a property to each feature"
-    return ft.set('area', ft.area(1))
+def add_area(feature: ee.Feature):
+    """Add the area as a property to each feature"""
+    return feature.set('area', feature.area(1))
 
 
-def calc_validation_score(binary, validation_polygons, binary_name='irrigated_area', export=False, export_polygons=False,
-                          name=None):
+def calc_validation_score(
+        binary: ee.Image,
+        validation_polygons: ee.FeatureCollection,
+        binary_name: str = 'irrigated_area',
+        export: bool = False,
+        export_polygons: bool = False,
+        name: str = None):
     """
     Calculates an accuracy score for the classification of irrigated areas for a binary layer using validation polygons
 
@@ -105,20 +115,22 @@ def calc_validation_score(binary, validation_polygons, binary_name='irrigated_ar
 
     result = ee.FeatureCollection(ee.Feature(None, validation_score))
 
+    # TODO - this is sloppy
     if export is True:
-        if export_polygons is True:
-            export_task = ee.batch.Export.table.toDrive(
-                collection=validation_polygons_scored,
-                description=f'validation_polygons',
-                folder=f'accuracy_polygons_kml',
-                fileFormat='KML'
-            )
-            export_task.start()
 
         if name is None:
             description = 'validation_score'
         else:
-            description=f'validation_score_{name}'
+            description = f'validation_score_{name}'
+
+        if export_polygons is True:
+            export_task = ee.batch.Export.table.toDrive(
+                collection=validation_polygons_scored,
+                description=description,
+                folder=f'accuracy_polygons',
+                fileFormat='GEO_JSON'
+            )
+            export_task.start()
 
         export_task = ee.batch.Export.table.toDrive(
             collection=result,
@@ -127,29 +139,47 @@ def calc_validation_score(binary, validation_polygons, binary_name='irrigated_ar
             fileFormat='CSV'
         )
         export_task.start()
-        return export_task
+        return validation_score, export_task
 
     else:
         return validation_score
 
 
-def sample_featurecollection(fc, fraction=.2, max_area=100000, min_area=10000, seed=0):
+def sample_feature_collection(
+        feature_collection: ee.FeatureCollection,
+        fraction: float = .2,
+        max_area: int = 100000,
+        min_area: int = 10000,
+        seed: int = 0,
+        intersect_aoi: bool = False) -> ee.FeatureCollection:
     """
-    Samples features from a featurecollection based on a random column value
-    :param fc: EE FeatureCollection containing polygons to be sampled
+    Samples features from an EE FeatureCollection based on a random column value
+
+    :param feature_collection: EE FeatureCollection containing polygons to be sampled
     :param fraction: fraction of the total number of features to extract
-    :param max_area: maximum size limit for polygons in squared meters
-    :param min_area: minimum size limit for polygons in squared meters
+    :param max_area: maximum size limit for polygons in square meters
+    :param min_area: minimum size limit for polygons in square meters
     :param seed: seed for randomColumn function
-    :return:
+    :param intersect_aoi: to intersect the feature collection with the AOI, removing parts outside the aoi
+    :return: feature collection containing a sample of the original feature collection
     """
 
-    filter_max_area = ee.Filter.lte('area', max_area)  # filter features based on area size
+    feature_collection = feature_collection.map(add_area)
+
+    # Filter features based on area size
+    filter_max_area = ee.Filter.lte('area', max_area)
     filter_min_area = ee.Filter.gte('area', min_area)
+    feature_collection = feature_collection.filter(filter_max_area).filter(filter_min_area)
 
-    fc = fc.filter(filter_max_area).filter(filter_min_area)
-    fc = fc.randomColumn(seed=seed)  # assigns a random value between 0 and 1 to each feature
+    # Assign a random value between 0 and 1 to each feature
+    feature_collection = feature_collection.randomColumn(seed=seed)
 
-    filter_random = ee.Filter.lte('random', fraction)  # selects features with a lower random value than the fraction
+    # Select features with a lower random value than the fraction
+    feature_collection = feature_collection.filter(ee.Filter.lte('random', fraction))
 
-    return fc.filter(filter_random)
+    if intersect_aoi:
+        feature_collection = ee.FeatureCollection(
+            feature_collection.geometry().intersection(AOI.geometry(), ee.ErrorMargin(1))
+        )
+
+    return feature_collection
