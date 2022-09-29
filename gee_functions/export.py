@@ -7,7 +7,7 @@ import re
 import time
 import urllib3
 
-from typing import Literal, Union, Dict
+from typing import Union, Dict
 
 try:
     from constants import PROJECT_PATH
@@ -17,7 +17,7 @@ except ImportError:
 
 def export_to_asset(
         asset: Union[ee.Image, ee.FeatureCollection],
-        asset_type: Literal['vector', 'image'],  # TODO Maybe better to go with EE terms such as table and image
+        asset_type: str,  # TODO Maybe better to go with EE terms such as table and image
         asset_id: str,
         region: ee.FeatureCollection,
         scale: int = 30,
@@ -106,7 +106,7 @@ def export_to_asset(
 
 def export_to_drive(
         asset: Union[ee.Image, ee.FeatureCollection],
-        asset_type: Literal['vector', 'image'],
+        asset_type: str,
         asset_name: str,
         region: ee.FeatureCollection,
         folder: str,

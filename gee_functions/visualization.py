@@ -11,7 +11,7 @@ from typing import List, Dict, Union
 def create_folium_map(
         images: Dict[str, str] = None,
         name: str = None,
-        coords: List[int, int] = [20, 0],
+        coords: List[int] = [20, 0],
         zoom: int = 6,
         height: str = '100%') -> folium.Map:
     """
@@ -186,7 +186,7 @@ def vis_params_ndvi(band: List[str] =["NDVI"]):
     return params
 
 
-def create_categorical_legend(map: folium.Map, classnames):
+def create_categorical_legend(map: folium.Map, classnames, palette):
     # TODO combine the last two parameters into a dict
     """
     Function to create and add a categorical legend to a folium map.
