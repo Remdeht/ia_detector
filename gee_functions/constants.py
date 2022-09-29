@@ -7,7 +7,7 @@ import os
 import httplib2
 from pathlib import Path
 
-from typing import Literal
+from typing import Dict
 
 import ee
 
@@ -182,10 +182,9 @@ MIN_TP: int = 1000
 # Maximum Number of Training Points
 MAX_TP: int = 10000
 
-DATA_CREATION_METHOD: Literal[
-    'all_scenes_reduced', 'monthly_composites_reduced'] = 'all_scenes_reduced'
+DATA_CREATION_METHOD: str = 'all_scenes_reduced'   # 'all_scenes_reduced', 'monthly_composites_reduced'
 
-CLASSIFICATION_BANDS: dict[str, bool] = {
+CLASSIFICATION_BANDS: Dict[str, bool] = {
     'R_max': False,
     'R_mean': True,
     'R_median': True,
