@@ -18,6 +18,8 @@ except ImportError:
     from .hydrology import add_mti
 
 
+from typing import Union
+
 def get_fraction_training_pixels(obj):
     """Calculates a fraction of the total number of pixels for the all the patches generated for a land cover class"""
     fraction = .20
@@ -506,7 +508,7 @@ def classify_irrigated_areas(
         aoi: ee.FeatureCollection,
         aoi_name: str,
         season: str,
-        year: int | str,
+        year: Union[int, str],
         it_cl: int = 1,
         ic_cl: int = 2,
         clf_folder: str = None,
@@ -692,13 +694,13 @@ def join_seasonal_irrigated_areas(
         irrigated_area_summer: ee.Image,
         irrigated_area_winter: ee.Image,
         aoi_name: str,
-        year: int | str,
+        year: Union[int, str],
         aoi: ee.FeatureCollection,
         export_method: str = 'drive',
         clf_folder: str = None,
         filename: str = None,
         scale: int = 30,
-        overwrite: bool = False) -> ee.batch.Task | bool:
+        overwrite: bool = False) -> Union[ee.batch.Task, bool]:
     """
     Combines the irrigated land areas determined by the RF for the summer and winter season into a single overview map.
 
@@ -789,7 +791,7 @@ def min_distance_classification(
         training_points: int = 20000,
         scale: int = 30,
         tilescale: int = 4,
-        classband: str = 'training') -> ee.batch.Task | bool:
+        classband: str = 'training') -> Union[ee.batch.Task, bool]:
     """
     Function that samples training data and trains a Mahalanobis distance classifier with a regression output mode
     and classifies the feature data provided

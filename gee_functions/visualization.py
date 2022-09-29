@@ -6,11 +6,12 @@ import ee
 import folium
 from branca.element import Template, MacroElement
 
+from typing import List, Dict, Union
 
 def create_folium_map(
-        images: dict[str, str] = None,
+        images: Dict[str, str] = None,
         name: str = None,
-        coords: list[int, int] = [20, 0],
+        coords: List[int, int] = [20, 0],
         zoom: int = 6,
         height: str = '100%') -> folium.Map:
     """
@@ -62,9 +63,9 @@ def create_folium_map(
 
 def vis_params_cp(
         band: str,
-        min_val: int | float,
-        max_val: int | float,
-        palette: list[str] = None,
+        min_val: Union[int, float],
+        max_val: Union[int, float],
+        palette: List[str] = None,
         opacity: int = 1):
     """
     Returns a dictionary for the visual parameters for a single band color palette representation
@@ -90,9 +91,9 @@ def vis_params_cp(
 
 
 def vis_params_rgb(
-        bands: list[int, int, int] = None,
-        min_val: int|float = 0,
-        max_val: int|float = 3000,
+        bands: List[int] = None,
+        min_val: Union[int, float] = 0,
+        max_val: Union[int, float] = 3000,
         gamma: float = 1.4,
         opacity: float = None):
     """
@@ -118,7 +119,7 @@ def vis_params_rgb(
     return params
 
 
-def vis_irrigated_area_map(band: list[str] = ['ia_year']):
+def vis_irrigated_area_map(band: List[str] = ['ia_year']):
     """
     Returns dictionary containing visual parameters for the visualization of the irrigated area overview map
 
@@ -143,7 +144,7 @@ def vis_irrigated_area_map(band: list[str] = ['ia_year']):
     return params
 
 
-def vis_rf_classification(band: list[str] =['rf_all_classes']):
+def vis_rf_classification(band: List[str] =['rf_all_classes']):
     """
     Returns dictionary containing visual parameters for the visualization of land cover maps obtained from random forest
     classification
@@ -172,7 +173,7 @@ def vis_rf_classification(band: list[str] =['rf_all_classes']):
     return params
 
 
-def vis_params_ndvi(band: list[str] =["NDVI"]):
+def vis_params_ndvi(band: List[str] =["NDVI"]):
     """
     Return the visual parameters for NDVI maps, representing the values with a red to green color palette
     """

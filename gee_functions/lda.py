@@ -6,6 +6,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 
+from typing import List
 
 def take_strat_sample(
         calibration_maps,
@@ -100,7 +101,7 @@ def take_strat_sample(
 
 def remove_outliers(
         df: pd.DataFrame,
-        bands_to_include: list[str],
+        bands_to_include: List[str],
         lower_quantile: float = 0.05,
         upper_quantile: float = 0.95) -> pd.DataFrame:
     """

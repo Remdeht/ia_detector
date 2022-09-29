@@ -3,6 +3,8 @@ Functions related to EE vectors
 """
 import ee
 
+from typing import Union, Dict
+
 
 def add_area(vector: ee.FeatureCollection) -> ee.FeatureCollection:
     """
@@ -45,7 +47,7 @@ def raster_to_vector(
     return vector
 
 
-def split_region(region: ee.FeatureCollection | ee.Feature) -> dict[str, ee.Geometry]:
+def split_region(region: Union[ee.FeatureCollection, ee.Feature]) -> Dict[str, ee.Geometry]:
     """
     Splits a EE FeatureCollection/Feature into four equal parts
     :param region: EE FeatureCollection/Feature to split

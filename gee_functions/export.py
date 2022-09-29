@@ -7,7 +7,7 @@ import re
 import time
 import urllib3
 
-from typing import Literal
+from typing import Literal, Union, Dict
 
 try:
     from constants import PROJECT_PATH
@@ -16,7 +16,7 @@ except ImportError:
 
 
 def export_to_asset(
-        asset: ee.Image | ee.FeatureCollection,
+        asset: Union[ee.Image, ee.FeatureCollection],
         asset_type: Literal['vector', 'image'],  # TODO Maybe better to go with EE terms such as table and image
         asset_id: str,
         region: ee.FeatureCollection,
@@ -105,7 +105,7 @@ def export_to_asset(
 
 
 def export_to_drive(
-        asset: ee.Image | ee.FeatureCollection,
+        asset: Union[ee.Image, ee.FeatureCollection],
         asset_type: Literal['vector', 'image'],
         asset_name: str,
         region: ee.FeatureCollection,
@@ -150,7 +150,7 @@ def export_to_drive(
         return export_task
 
 
-def track_task(task: ee.batch.Task | dict[str, ee.batch.Task | bool]) -> bool:
+def track_task(task: Union[ee.batch.Task, Dict[str, Union[ee.batch.Task, bool]]]) -> bool:
     """
     Function for the tracking of a EE export task
 

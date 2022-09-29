@@ -7,6 +7,7 @@ from monthdelta import monthdelta
 from datetime import timedelta, datetime
 from dateutil.relativedelta import relativedelta
 
+from typing import Union
 
 def preprocess_landsat(image: ee.Image) -> ee.Image:
     """
@@ -37,7 +38,7 @@ def preprocess_landsat(image: ee.Image) -> ee.Image:
 
 # Functions to get Image Collections
 def get_ls_image_collection(
-        col: int | str,
+        col: Union[int, str],
         begin_date: str,
         end_date: str,
         aoi: ee.FeatureCollection = None) -> ee.ImageCollection:
@@ -103,7 +104,7 @@ def get_ls_image_collection(
 
 
 def get_ls89_image_collection(
-        col: int | str,
+        col: Union[int, str],
         begin_date: str,
         end_date: str,
         aoi=None) -> ee.ImageCollection:
