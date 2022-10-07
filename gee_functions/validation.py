@@ -3,7 +3,11 @@ Functions used for validation using validation polygons
 """
 
 import ee
-from gee_functions.constants import AOI
+
+try:
+    from constants import AOI
+except ImportError:
+    from .constants import AOI
 
 
 def calc_area(
