@@ -244,32 +244,79 @@ def get_histogram(X, y, classes, user_threshold=None, suggested_threshold=None, 
     if fig is None:
         fig = go.Figure()
 
-    for cl_key in classes:
-        fig.add_trace(
-            go.Histogram(
-                x=X[:, 0][y == cl_key],
-                name=classes[cl_key],
-                legendgroup=cl_key
+    for cl_key, cl_name in classes.items():
+
+        if len(y.unique()) == 2:
+            fig.add_trace(
+                go.Histogram(
+                    x=X[:, 0][y == cl_key],
+                    name=classes[cl_key],
+                    legendgroup=cl_key,
+                    opacity=.85,
+                    showlegend=False,
+                ),
+                row=row,
+                col=col
+            )
+        else:
+
+            if cl_key == 0:
+                opacity = 0.90
+                showlegend = True
+                data_x = X[:, 0][y == cl_name['lc_val']]
+                cl_name = cl_name['name']
+            else:
+                opacity = 0.65
+                showlegend = False
+                data_x = X[:, 0][y == cl_key]
+
+            fig.add_trace(
+                go.Histogram(
+                    x=data_x,
+                    name=cl_name,
+                    legendgroup=cl_name,
+                    marker_color=RF_LC_COLORS[cl_name],
+                    opacity=opacity,
+                    showlegend=showlegend,
+                ),
+                row=row,
+                col=col
+            )
+
+    if user_threshold is not None:
+        fig.add_shape(
+            type="line",
+            x0=user_threshold,
+            y0=0,
+            x1=user_threshold,
+            y1=500,
+            line=dict(
+                color="Red",
+                width=3
             ),
+            name='Threshold selected by user',
             row=row,
             col=col
         )
 
-    if user_threshold is not None:
-        fig.add_shape(type="line",
-                      x0=user_threshold, y0=0, x1=user_threshold, y1=500,
-                      line=dict(color="Red", width=3),
-                      name='Threshold selected by user',
-                      row=row, col=col)
-
     if suggested_threshold is not None:
-        fig.add_shape(type="line",
-                      x0=suggested_threshold, y0=0, x1=suggested_threshold, y1=500,
-                      line=dict(color="RoyalBlue", width=3),
-                      name='Suggested Threshold',
-                      row=row, col=col)
+        fig.add_shape(
+            type="line",
+            x0=suggested_threshold,
+            y0=0,
+            x1=suggested_threshold,
+            y1=500,
+            line=dict(
+                color="RoyalBlue",
+                width=3
+            ),
+            name='Suggested Threshold',
+            row=row,
+            col=col
+        )
+
     # Overlay both histograms
     fig.update_layout(barmode='overlay')
     # Reduce opacity to see both histograms
-    fig.update_traces(opacity=0.75)
+    # fig.update_traces(opacity=0.75)
     return fig
