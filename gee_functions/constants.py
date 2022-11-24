@@ -182,7 +182,28 @@ MIN_TP: int = 1000
 # Maximum Number of Training Points
 MAX_TP: int = 10000
 
-DATA_CREATION_METHOD: str = 'all_scenes_reduced'   # 'all_scenes_reduced', 'monthly_composites_reduced'
+DATA_CREATION_METHOD: str = 'all_scenes_reduced'  # 'all_scenes_reduced', 'monthly_composites_reduced'
+
+SUMMER_DEFAULT_THRESHOLDS: Dict[str, float] = {
+    'summer_irrigated_trees_threshold': 1,
+    'summer_irrigated_crops_threshold': 1.3,
+    'summer_forest_threshold': 1.5,
+    'summer_shrub_threshold': .75,
+    'summer_rainfed_agriculture': 1,
+    'summer_greenhouses': 1,
+    'summer_urban_fallow': 1,
+    'summer_water_bodies': 2,
+}
+
+WINTER_DEFAULT_THRESHOLDS: Dict[str, float] = {
+    'winter_irrigated_trees_threshold': 0.9,
+    'winter_irrigated_crops_threshold': 1.3,
+    'winter_forest_threshold': 1.7,
+    'winter_shrub_threshold': 0.95,
+    'winter_rainfed_agriculture': 0.9,
+    'winter_greenhouses': 1.4,
+    'winter_urban_fallow': 1,
+    'winter_water_bodies': 2}
 
 CLASSIFICATION_BANDS: Dict[str, bool] = {
     'R_max': False,
@@ -267,26 +288,22 @@ CLASSIFICATION_BANDS: Dict[str, bool] = {
     'WGI_stdDev': True,
     'EVI_stdDev': True,
     'SAVI_stdDev': True,
-    'pdsi_min': False,
-    'pdsi_p15': False,
-    'pdsi_p85': False,
-    'pdsi_mean': False,
-    'pdsi_max': False,
-    'pdsi_stdDev': False,
-    'soil_min': False,
-    'soil_p15': False,
-    'soil_p85': False,
-    'soil_mean': False,
-    'soil_max': False,
-    'soil_stdDev': False,
-    'pr_min': False,
-    'pr_p15': False,
-    'pr_p85': False,
-    'pr_mean': False,
-    'pr_max': False,
-    'pr_stdDev': False,
     'MTI': True,
     'slope': True,
 }
 
 BANDNAMES = [key for key, value in CLASSIFICATION_BANDS.items() if value]
+
+PALLETE_RF = {
+    'other':'gray',
+    'irrigated_trees':'#64C3FF',
+    'irrigated_crops':'#6464FE',
+    'forest':'#009600',
+    'shrub':'#824B32',
+    'rainfed_agriculture':'#F5D7A5',
+    'greenhouses':'#FFFF00',
+    'urban_fallow':'#AA0F6E',
+    'water_bodies':'#00008b',
+}
+
+PALETTE_IA = {}

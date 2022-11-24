@@ -8,6 +8,7 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 
 from typing import List
 
+
 def take_strat_sample(
         calibration_maps,
         feature_data,
@@ -38,9 +39,10 @@ def take_strat_sample(
         :param file_name: Name for the CSV file in which the samples are stored on the Google Drive, Defaults to 'sample_collection'
         :param dir_name: Name for the directory in which the samples are stored on the Google Drive, Defaults to 'sample_directory'
         :param min_connected_pixels: Number of minimum connected pixels a patch needs to contain, otherwise it is not
-         considered for sanpling
+         considered for sampling
         :return: export task, EE Image containing the masked patches, EE image containing the patches
         """
+
     sample_collection = None
     new_class_values = {}
 
@@ -184,3 +186,88 @@ def perform_lda_scaling(
     final_img = total.addBands(training_areas.where(training_areas_mask.eq(0), 0))
 
     return final_img
+
+
+def get_data(data_loc, bandnames, target_class, subsample_other=True):
+    def assign_bin_y(val):
+        if val == target_class:
+            return 1
+        else:
+            return 0
+
+    df = pd.read_csv(data_loc)
+    bandnames = [band for band in bandnames if band in list(df.columns)]
+
+    df['lc_bin'] = df['class'].apply(assign_bin_y)
+    df = df[bandnames + ['lc', 'lc_bin', 'class']].dropna()
+    df = remove_outliers(df, bandnames)
+
+    if subsample_other:
+        df_target = df[(df['class'] == target_class)]
+        df_other = df[~(df['lc'] == target_class)].groupby('lc').sample(n=2000, random_state=1)
+        df = pd.concat([df_target, df_other])
+
+    X = df[bandnames]
+    y = df[['lc', 'lc_bin', 'class']]
+
+    return X, y
+
+
+def get_data(data_loc, bandnames, target_class, subsample_other=True):
+    def assign_bin_y(val):
+        if val == target_class:
+            return 1
+        else:
+            return 0
+
+    df = pd.read_csv(f'{data_loc}.csv')
+    bandnames = [band for band in bandnames if band in list(df.columns)]
+
+    df['lc_bin'] = df['class'].apply(assign_bin_y)
+    df = df[bandnames + ['lc', 'lc_bin', 'class']].dropna()
+    df = remove_outliers(df, bandnames)
+
+    if subsample_other:
+        df_target = df[(df['class'] == target_class)]
+        df_other = df[~(df['lc'] == target_class)].groupby('lc').sample(n=2000, random_state=1)
+        df = pd.concat([df_target, df_other])
+
+    X = df[bandnames]
+    y = df[['lc', 'lc_bin', 'class']]
+
+    return X, y
+
+
+def get_histogram(X, y, classes, user_threshold=None, suggested_threshold=None, fig=None, row=None, col=None):
+    if fig is None:
+        fig = go.Figure()
+
+    for cl_key in classes:
+        fig.add_trace(
+            go.Histogram(
+                x=X[:, 0][y == cl_key],
+                name=classes[cl_key],
+                legendgroup=cl_key
+            ),
+            row=row,
+            col=col
+        )
+
+    if user_threshold is not None:
+        fig.add_shape(type="line",
+                      x0=user_threshold, y0=0, x1=user_threshold, y1=500,
+                      line=dict(color="Red", width=3),
+                      name='Threshold selected by user',
+                      row=row, col=col)
+
+    if suggested_threshold is not None:
+        fig.add_shape(type="line",
+                      x0=suggested_threshold, y0=0, x1=suggested_threshold, y1=500,
+                      line=dict(color="RoyalBlue", width=3),
+                      name='Suggested Threshold',
+                      row=row, col=col)
+    # Overlay both histograms
+    fig.update_layout(barmode='overlay')
+    # Reduce opacity to see both histograms
+    fig.update_traces(opacity=0.75)
+    return fig
