@@ -6,6 +6,8 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 
+import plotly.graph_objects as go
+
 from typing import List
 
 
