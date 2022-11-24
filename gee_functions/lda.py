@@ -10,6 +10,11 @@ import plotly.graph_objects as go
 
 from typing import List
 
+try:
+    from constants import PALLETE_RF
+except ImportError:
+    from .constants import PALLETE_RF
+
 
 def take_strat_sample(
         calibration_maps,
@@ -275,7 +280,7 @@ def get_histogram(X, y, classes, user_threshold=None, suggested_threshold=None, 
                     x=data_x,
                     name=cl_name,
                     legendgroup=cl_name,
-                    marker_color=RF_LC_COLORS[cl_name],
+                    marker_color=PALLETE_RF[cl_name],
                     opacity=opacity,
                     showlegend=showlegend,
                 ),
