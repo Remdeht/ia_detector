@@ -295,7 +295,7 @@ CLASSIFICATION_BANDS: Dict[str, bool] = {
 BANDNAMES = [key for key, value in CLASSIFICATION_BANDS.items() if value]
 
 PALETTE_RF = {
-    'other':'gray',
+    'other':'white',
     'irrigated_trees':'#64C3FF',
     'irrigated_crops':'#6464FE',
     'forest':'#009600',
