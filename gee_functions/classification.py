@@ -659,11 +659,11 @@ def classify_irrigated_areas(
 
     try:  # export the results to asset
         task = export_to_asset(
-            irrigated_results,
-            'image',
-            loc,
-            aoi_coordinates,
-            scale,
+            asset=irrigated_results,
+            asset_type='image',
+            asset_id=loc,
+            region=aoi_coordinates,
+            scale=scale,
             overwrite=overwrite
         )
     except FileExistsError as e:
