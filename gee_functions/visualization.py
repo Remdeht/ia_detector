@@ -8,6 +8,7 @@ from branca.element import Template, MacroElement
 
 from typing import List, Dict, Union
 
+
 def create_folium_map(
         images: Dict[str, str] = None,
         name: str = None,
@@ -186,20 +187,18 @@ def vis_params_ndvi(band: List[str] =["NDVI"]):
     return params
 
 
-def create_categorical_legend(map: folium.Map, classnames, palette):
-    # TODO combine the last two parameters into a dict
+def create_categorical_legend(folium_map: folium.Map, palette: Dict[str, str]) -> folium.Map:
     """
     Function to create and add a categorical legend to a folium map.
 
-    :param map: folium map to which the legend will be added
+    :param folium_map: folium map to which the legend will be added
     :param palette: list with color codes for each class
-    :param classnames: list with class names, matching the palette list
     :return: folium map with categorical legend
     """
     categories = ""
     # creates class category label to add to legend
-    for ind, cl in enumerate(classnames):
-        categories += f"<li><span style='background:#{palette[ind]};opacity:0.85;'></span>{classnames[cl]}</li>"
+    for name, color in palette.items():
+        categories += f"<li><span style='background:#{color};opacity:0.85;'></span>{name}</li>"
 
     template_head = """
     {% macro html(this, kwargs) %}
@@ -295,16 +294,14 @@ def create_categorical_legend(map: folium.Map, classnames, palette):
     macro = MacroElement()
     macro._template = Template(template)  # create an element
 
-    return map.get_root().add_child(macro)  # add element to the map and return the map
+    return folium_map.get_root().add_child(macro)  # add element to the map and return the map
 
 
-def create_hectares_label(map: folium.Map, hectares: int):
+def create_hectares_label(folium_map: folium.Map, hectares: int):
     """
     Function to create and add a categorical legend to a folium map.
 
-    :param map: folium map to which the legend will be added
-    :param palette: list with color codes for each class
-    :param classnames: list with class names, matching the palette list
+    :param folium_map: folium map to which the legend will be added
     :return: folium map with categorical legend
     """
 
@@ -396,8 +393,8 @@ def create_hectares_label(map: folium.Map, hectares: int):
     </style>
     {% endmacro %}"""
 
-    template = template_head + styling + end  # Combine all the parts into a single templace docstring
+    template = template_head + styling + end  # Combine all the parts into a single template docstring
     macro = MacroElement()
     macro._template = Template(template)  # create an element
 
-    return map.get_root().add_child(macro)  # add element to the map and return the map
+    return folium_map.get_root().add_child(macro)  # add element to the map and return the map

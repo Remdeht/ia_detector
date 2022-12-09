@@ -20,6 +20,7 @@ def export_to_asset(
         asset_type: str,  # TODO Maybe better to go with EE terms such as table and image
         asset_id: str,
         region: ee.FeatureCollection,
+        crs: str='EPSG:4326',
         scale: int = 30,
         max_pixels: int = 1e13,
         overwrite: bool = False) -> ee.batch.Task:
@@ -84,6 +85,7 @@ def export_to_asset(
             image=asset,
             description=description,
             assetId=f'{PROJECT_PATH}/raster/{asset_id}',
+            crs=crs,
             scale=scale,
             region=region,
             maxPixels=max_pixels,
@@ -179,6 +181,8 @@ def track_task(task: Union[ee.batch.Task, Dict[str, Union[ee.batch.Task, bool]]]
                 if status['state'] == 'COMPLETED':  # if the task is completed
                     print(f'Task "{t}" completed, runtime: {mins_running} minutes')
                     task[t] = True
+                elif status['state'] == 'UNSUBMITTED':
+                    task[t].start()
                 elif status['state'] == 'CANCELLED':
                     raise RuntimeError(f'Export task {t} canceled')
                 elif status['state'] == 'FAILED':  # if the task fails

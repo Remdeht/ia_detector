@@ -20,6 +20,7 @@ except ImportError:
 
 from typing import Union
 
+
 def get_fraction_training_pixels(obj):
     """Calculates a fraction of the total number of pixels for the all the patches generated for a land cover class"""
     fraction = .20
@@ -123,9 +124,6 @@ def create_feature_data(
     mti = add_mti()
     slope = ee.Terrain.slope(ee.Image("USGS/SRTMGL1_003").select('elevation')).rename('slope')
 
-    tc = ee.ImageCollection('IDAHO_EPSCOR/TERRACLIMATE').select(['pdsi', 'soil', 'pr']).filter(
-        ee.Filter.date(begin, end))
-
     if creation_method in ['monthly_composites_reduced', 'all_scenes_reduced']:
 
         col_mean = col.mean().regexpRename('(.*)', '$1_mean', False)
@@ -136,14 +134,6 @@ def create_feature_data(
         col_p15 = col.reduce(ee.Reducer.percentile([15]))
         col_std_dev = col.reduce(ee.Reducer.stdDev())
 
-        col_tc_mean = tc.mean().regexpRename('(.*)', '$1_mean', False)
-        col_tc_median = tc.median().regexpRename('(.*)', '$1_median', False)
-        col_tc_min = tc.min().regexpRename('(.*)', '$1_min', False)
-        col_tc_max = tc.max().regexpRename('(.*)', '$1_max', False)
-        col_tc_p85 = tc.reduce(ee.Reducer.percentile([85]))
-        col_tc_p15 = tc.reduce(ee.Reducer.percentile([15]))
-        col_tc_std_dev = tc.reduce(ee.Reducer.stdDev())
-
         feature_data = ee.ImageCollection(
             [
                 col_mean,
@@ -153,13 +143,6 @@ def create_feature_data(
                 col_p85,
                 col_p15,
                 col_std_dev,
-                col_tc_mean,
-                col_tc_median,
-                col_tc_min,
-                col_tc_max,
-                col_tc_p85,
-                col_tc_p15,
-                col_tc_std_dev,
                 mti.rename('MTI'),
                 slope
             ]
@@ -827,3 +810,15 @@ def min_distance_classification(
     ).setOutputMode('REGRESSION')
 
     return data.classify(distance_classifier).rename('classification')
+
+
+def combine_training_areas(img_training_areas, classes):
+  # Combine the training areas in to single image
+
+  img_training_areas_summed = img_training_areas.reduce('sum')
+  img_training_areas_combined = ee.Image(0)
+
+  for ind, cl in enumerate(classes):
+    img_training_areas_combined = img_training_areas_combined.where(img_training_areas.select(cl).eq(1).And(img_training_areas_summed.eq(1)), classes[cl])
+
+  return img_training_areas_combined

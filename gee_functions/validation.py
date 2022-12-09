@@ -15,7 +15,9 @@ def calc_area(
         region: ee.FeatureCollection,
         scale: int = 30,
         tile_scale: int = 2,
-        max_pixels: int = 1e13):
+        max_pixels: int = 1e13,
+        crs: str='EPSG:32630'
+    ):
     """
     Function to calculate the area of the objects on a binary map in hectares
     :param image: EE image with areas for which to calculate the area having values larger then 0
@@ -35,7 +37,9 @@ def calc_area(
         geometry=region,
         scale=scale,
         tileScale=tile_scale,
-        maxPixels=max_pixels).get('area')
+        maxPixels=max_pixels,
+        crs=crs,
+    ).get('area')
 
     return total_irrigated_area
 
