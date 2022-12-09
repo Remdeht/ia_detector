@@ -198,7 +198,7 @@ def create_categorical_legend(folium_map: folium.Map, palette: Dict[str, str]) -
     categories = ""
     # creates class category label to add to legend
     for name, color in palette.items():
-        categories += f"<li><span style='background:#{color};opacity:0.85;'></span>{name}</li>"
+        categories += f"<li><span style='background:{color};opacity:0.85;'></span>{name}</li>"
 
     template_head = """
     {% macro html(this, kwargs) %}
