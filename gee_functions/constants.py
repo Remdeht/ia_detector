@@ -306,4 +306,13 @@ PALETTE_RF = {
     'water_bodies':'#00008b',
 }
 
-PALETTE_IA = {}
+PALETTE_IA = {
+    'Not Irrigated':'#000000',
+    'Year Round Irrigated Crops':'#211cff',
+    'Year Round Irrigated Trees':'#20b407',
+    'Summer Irrigated Crops':'#0aaeff',
+    'Summer Irrigated Trees':'#5bff0a',
+    'Winter Irrigated Crops':'#64d3ff',
+    'Winter Irrigated Trees':'#86ffa7',
+    'Uncertain Areas':'#ff7e9b',
+}
