@@ -235,7 +235,7 @@ def create_categorical_legend(folium_map: folium.Map, palette: Dict[str, str]) -
     styling = f"""
     <div id='maplegend' class='maplegend' 
         style='position: absolute; z-index:9999; border:2px solid grey; background-color:rgba(255, 255, 255, 0.8);
-         border-radius:6px; padding: 10px; font-size:14px; right: 20px; bottom: 20px;'>
+         border-radius:6px; padding: 10px; font-size:14px; right: 20px; bottom: 35vh;'>
 
     <div class='legend-title'>Legend</div>
     <div class='legend-scale'>
