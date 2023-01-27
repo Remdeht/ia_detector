@@ -11,12 +11,11 @@ try:
     from export import export_to_asset
     from hydrology import add_mti
 except ImportError:
-    from . import landsat
-    from . import sentinel
-    from . import indices
-    from .export import export_to_asset
-    from .hydrology import add_mti
-
+    from gee_functions import landsat
+    from gee_functions import sentinel
+    from gee_functions import indices
+    from gee_functions.export import export_to_asset
+    from gee_functions.hydrology import add_mti
 
 from typing import Union
 
@@ -822,3 +821,18 @@ def combine_training_areas(img_training_areas, classes):
     img_training_areas_combined = img_training_areas_combined.where(img_training_areas.select(cl).eq(1).And(img_training_areas_summed.eq(1)), classes[cl])
 
   return img_training_areas_combined
+
+
+if __name__ == '__main__':
+    year = 2019
+    aoi = ee.FeatureCollection(f'users/Postm087/vector/outline/outline_cdc')
+    summer_dates = (f'{year}-04-01', f'{year}-09-30')
+
+    task = create_feature_data(
+        summer_dates,
+        aoi,
+        aoi_name='cdc',
+        sensor='sentinel',
+        custom_name=f'summer_{year}',
+        overwrite=True,
+    )

@@ -9,6 +9,7 @@ from dateutil.relativedelta import relativedelta
 
 from typing import Union
 
+
 def preprocess_landsat(image: ee.Image) -> ee.Image:
     """
     TODO - check if the cloud masking is working properly

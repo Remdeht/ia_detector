@@ -4,8 +4,12 @@ from dateutil.relativedelta import relativedelta
 from monthdelta import monthdelta
 
 
+def scale_data(image):
+    return image.multiply(0.0001)
+
+
 def s2_cloudmask(image: ee.Image) -> ee.Image:
-    qa = image.select('QA60');
+    qa = image.select('QA60')
     # Bits 10 and 11 are clouds and cirrus, respectively.
     cloudBitMask = 1 << 10
     cirrusBitMask = 1 << 11
@@ -13,7 +17,7 @@ def s2_cloudmask(image: ee.Image) -> ee.Image:
     # Both flags should be set to zero, indicating clear conditions.
     mask = qa.bitwiseAnd(cloudBitMask).eq(0).And(qa.bitwiseAnd(cirrusBitMask).eq(0))
 
-    return image.updateMask(mask).multiply(0.0001)
+    return image.updateMask(mask)
 
 
 def rename_s2_bands(image: ee.Image) -> ee.Image:
@@ -34,15 +38,16 @@ def get_s2_image_collection(begin_date, end_date, aoi=None):
                  .map(s2_cloudmask)\
                  .select('B2', 'B3', 'B4', 'B8', 'B11', 'B12', 'QA60')\
                  .filterDate(begin_date, end_date)\
-                 .map(rename_s2_bands)
-
+                 .map(rename_s2_bands)\
+                 .map(scale_data)
     else:
         return ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
                  .map(s2_cloudmask)\
                  .select('B2', 'B3', 'B4', 'B8', 'B11', 'B12', 'QA60')\
                  .filterBounds(aoi)\
                  .filterDate(begin_date, end_date)\
-                 .map(rename_s2_bands)
+                 .map(rename_s2_bands)\
+                 .map(scale_data)
 
 
 def create_monthly_index_images(image_collection, start_date, end_date, aoi, stats=['median']):
