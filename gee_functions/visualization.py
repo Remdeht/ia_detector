@@ -54,7 +54,7 @@ def create_folium_map(
                 pane='main',
             ).add_to(folium_map)
 
-    folium_map.add_child(folium.LayerControl())  # add layer control
+    folium_map.add_child(folium.LayerControl(position='topleft'))  # add layer control
 
     if name is not None:  # if a name is specified the map is saved as an HTML file
         folium_map.save(f'{name}.html')
