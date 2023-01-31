@@ -297,7 +297,7 @@ def create_categorical_legend(folium_map: folium.Map, palette: Dict[str, str]) -
     return folium_map.get_root().add_child(macro)  # add element to the map and return the map
 
 
-def create_hectares_label(folium_map: folium.Map, hectares: int):
+def create_hectares_label(folium_map: folium.Map, hectares: int, year: int):
     """
     Function to create and add a categorical legend to a folium map.
 
@@ -342,7 +342,7 @@ def create_hectares_label(folium_map: folium.Map, hectares: int):
         style='position: absolute; z-index:9999; border:2px solid grey; background-color:rgba(255, 255, 255, 0.8);
          border-radius:6px; padding: 10px; font-size:14px; left: 700px; top: 20px;'>
 
-    <div class='legend-title'>Total Irrigated Area: <it>{hectares} Hectares</it></div>
+    <div class='legend-title'>Total Irrigated Area for {year}: <it>{hectares} Hectares</it></div>
 
     </body>
     </html>
